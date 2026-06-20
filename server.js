@@ -13,12 +13,12 @@ app.use(express.static('public'));
 
 // Security Headers Middleware
 app.use((req, res, next) => {
-  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https: blob:; connect-src 'self' https:; frame-src 'self' https:; frame-ancestors 'none';");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://spedostream2.shop; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; media-src 'self' http: https: blob: data:; connect-src 'self' https:; frame-src 'self' https:; frame-ancestors 'self';");
   next();
 });
 
@@ -130,13 +130,39 @@ app.get('/api/player-proxy', async (req, res) => {
 
     let html = await response.text();
 
-    // Inject <base> tag to correctly load relative styles, scripts, and media files
+    // Strip any Content-Security-Policy meta tags returned by the remote server to prevent local overrides
+    html = html.replace(/<meta[^>]*content-security-policy[^>]*>/gi, '');
+
+    // Get local origin to build absolute URLs that bypass base-href resolution
+    const host = req.headers.host || 'localhost:3000';
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const localOrigin = `${proto}://${host}`;
+
+    // Inject AdBlock bypass script and base tag
     const parsedUrl = new URL(url);
     const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
-    html = html.replace(/<head>/i, `<head><base href="${baseHref}">`);
+    const adblockBypassScript = `
+      <script>
+        window.adblock = false;
+        window.adblock3 = false;
+        window.canRunAds = true;
+        window.adblockDetected = false;
+        window.checkAdBlock = function() { return false; };
+      </script>
+    `;
+    html = html.replace(/<head>/i, `<head>${adblockBypassScript}<base href="${baseHref}">`);
 
     // Force extension status to true in player script checks
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
+
+    // Strip ad/tracking scripts to prevent CSP violations and tracking
+    html = html.replace(/<script[^>]*llvpn\.com[^>]*>([\s\S]*?)<\/script>/gi, '');
+    html = html.replace(/<script[^>]*tag\.min\.js[^>]*>([\s\S]*?)<\/script>/gi, '');
+    html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
+
+    // Bypass adblock.com detection request by replacing it with a local path
+    html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
+    html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
     // Fix resolution switching by making play_url return the url directly
     html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
@@ -198,6 +224,12 @@ app.get('/api/player-proxy', async (req, res) => {
     console.error('Proxy request failed:', error.message);
     res.status(500).send(`Proxy error: ${error.message}`);
   }
+});
+
+// Dummy endpoint for blocked ad/tracker scripts
+app.get('/api/dummy.js', (req, res) => {
+  res.setHeader('Content-Type', 'text/javascript');
+  res.status(200).send('/* Blocked Script Placeholder */');
 });
 
 // 1. Get movies / list / category

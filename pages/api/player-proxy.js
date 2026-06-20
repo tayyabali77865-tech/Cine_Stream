@@ -30,20 +30,39 @@ export default async function handler(req, res) {
 
     let html = await response.text();
 
-    // Inject base tag
+    // Strip any Content-Security-Policy meta tags returned by the remote server (broad, case-insensitive match)
+    html = html.replace(/<meta[^>]*content-security-policy[^>]*>/gi, '');
+
+    // Get local origin to build absolute URLs that bypass base-href resolution
+    const host = req.headers.host || 'localhost:3000';
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const localOrigin = `${proto}://${host}`;
+
+    // Inject AdBlock bypass script and base tag
     const parsedUrl = new URL(url);
     const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
-    html = html.replace(/<head>/i, `<head><base href="${baseHref}">`);
+    const adblockBypassScript = `
+      <script>
+        window.adblock = false;
+        window.adblock3 = false;
+        window.canRunAds = true;
+        window.adblockDetected = false;
+        window.checkAdBlock = function() { return false; };
+      </script>
+    `;
+    html = html.replace(/<head>/i, `<head>${adblockBypassScript}<base href="${baseHref}">`);
 
     // Force extension status to true
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
 
     // Strip ad/tracking scripts to prevent CSP violations and tracking
-    html = html.replace(/<script[^>]*src=["'][^"']*(llvpn\.com|adblock|tracking)[^"']*["'][^>]*><\/script>/gi, '');
-    html = html.replace(/https?:\/\/llvpn\.com/gi, '/blocked-llvpn');
+    html = html.replace(/<script[^>]*llvpn\.com[^>]*>([\s\S]*?)<\/script>/gi, '');
+    html = html.replace(/<script[^>]*tag\.min\.js[^>]*>([\s\S]*?)<\/script>/gi, '');
+    html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
 
-    // Bypass adblock.com detection request by replacing it with a safe data URI
-    html = html.replace(/https?:\/\/adblock\.com/g, 'data:text/plain,ok');
+    // Bypass adblock.com detection request by replacing it with a local path (succeeds under 'self' CSP)
+    html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
+    html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
     // Fix resolution switches
     html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
