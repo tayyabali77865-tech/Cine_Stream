@@ -40,6 +40,7 @@ export default async function handler(req, res) {
 
     // Strip ad/tracking scripts to prevent CSP violations and tracking
     html = html.replace(/<script[^>]*src=["'][^"']*(llvpn\.com|adblock|tracking)[^"']*["'][^>]*><\/script>/gi, '');
+    html = html.replace(/https?:\/\/llvpn\.com/gi, '/blocked-llvpn');
 
     // Bypass adblock.com detection request by replacing it with a safe data URI
     html = html.replace(/https?:\/\/adblock\.com/g, 'data:text/plain,ok');
