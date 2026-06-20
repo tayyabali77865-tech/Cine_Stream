@@ -383,7 +383,7 @@ async function openMovieDetail(slug, updateHash = true) {
         playerHTML = `
           <iframe 
             id="player-iframe"
-            src="${movie.videoUrl}" 
+            src="${movie.videoUrl}&_cb=${Date.now()}" 
             width="100%" 
             height="100%" 
             frameborder="0" 
@@ -609,7 +609,7 @@ async function updatePlayerSource(slug, season, episode) {
     const res = await fetch(`/api/movie/${slug}/player?se=${season}&ep=${episode}`);
     const data = await res.json();
     if (data.success && data.videoUrl) {
-      iframe.src = data.videoUrl;
+      iframe.src = data.videoUrl + "&_cb=" + Date.now();
     }
   } catch (err) {
     console.error('Error updating player:', err);
