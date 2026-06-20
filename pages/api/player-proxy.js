@@ -47,6 +47,15 @@ export default async function handler(req, res) {
       return res.status(response.status).send(`Proxy error: ${response.statusText}`);
     }
 
+    // Forward Set-Cookie headers from target server to client browser to propagate the session
+    const setCookieHeaders = response.headers.getSetCookie 
+      ? response.headers.getSetCookie() 
+      : response.headers.get('set-cookie');
+      
+    if (setCookieHeaders) {
+      res.setHeader('Set-Cookie', setCookieHeaders);
+    }
+
     let html = await response.text();
 
     // Strip any Content-Security-Policy meta tags returned by the remote server (broad, case-insensitive match)

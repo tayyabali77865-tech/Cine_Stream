@@ -28,6 +28,14 @@ export default async function handler(req, res) {
       return res.status(response.status || 404).end();
     }
 
+    const setCookieHeaders = response.headers.getSetCookie 
+      ? response.headers.getSetCookie() 
+      : response.headers.get('set-cookie');
+      
+    if (setCookieHeaders) {
+      res.setHeader('Set-Cookie', setCookieHeaders);
+    }
+
     res.writeHead(response.status, {
       'Content-Type': 'video/mp4',
       'Content-Range': response.headers.get('content-range') || '',
