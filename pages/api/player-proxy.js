@@ -83,8 +83,8 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switches
-    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
+    // Fix resolution switches and route video streams through our local video-proxy
+    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return "' + localOrigin + '/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); ');
 
     const extraStyles = `
       <style>
