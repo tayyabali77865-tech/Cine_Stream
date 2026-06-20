@@ -19,6 +19,9 @@ export default async function handler(req, res) {
       return res.status(400).send('URL query parameter is required');
     }
 
+    // Set Cache-Control to prevent Vercel CDN and browser caching of signed pages
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+
     // Regenerate signature dynamically to prevent "Time not Found" / expiration issues
     const ts = Math.floor(Date.now() / 1000);
     const sig = crypto.createHmac('sha256', 'net###@@sss').update(String(ts)).digest('hex');

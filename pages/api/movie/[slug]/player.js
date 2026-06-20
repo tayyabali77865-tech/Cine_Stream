@@ -51,6 +51,9 @@ export default async function handler(req, res) {
     if (!slug) {
       return res.status(400).json({ success: false, error: 'Slug parameter is required.' });
     }
+
+    // Prevent Vercel CDN caching of dynamically generated signed URLs
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
     const parts = slug.split('-');
     if (parts.length < 2) {
       return res.status(400).json({ success: false, error: 'Invalid slug format.' });

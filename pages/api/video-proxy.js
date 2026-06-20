@@ -7,6 +7,9 @@ export default async function handler(req, res) {
       return res.status(400).send('streamUrl query parameter is required');
     }
 
+    // Set Cache-Control to prevent Vercel CDN and browser caching of media streams
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+
     const range = req.headers.range || 'bytes=0-';
 
     const headers = {
