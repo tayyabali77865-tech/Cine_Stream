@@ -22,14 +22,14 @@ export default async function handler(req, res) {
     // Regenerate signature dynamically to prevent "Time not Found" / expiration issues
     const ts = Math.floor(Date.now() / 1000);
     const sig = crypto.createHmac('sha256', 'net###@@sss').update(String(ts)).digest('hex');
-    
+
     let targetUrl = url;
     if (targetUrl.includes('ts=')) {
       targetUrl = targetUrl.replace(/ts=\d+/g, `ts=${ts}`);
     } else {
       targetUrl += `&ts=${ts}`;
     }
-    
+
     if (targetUrl.includes('sig=')) {
       targetUrl = targetUrl.replace(/sig=[a-f0-9]+/g, `sig=${sig}`);
     } else {
@@ -83,8 +83,8 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switches and route video streams through our local video-proxy
-    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return "' + localOrigin + '/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); ');
+    // Fix resolution switches
+    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
 
     const extraStyles = `
       <style>

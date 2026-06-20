@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const { Readable } = require('stream');
 
 export default async function handler(req, res) {
   try {
@@ -37,7 +37,11 @@ export default async function handler(req, res) {
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
     });
 
-    response.body.pipe(res);
+    if (response.body) {
+      Readable.fromWeb(response.body).pipe(res);
+    } else {
+      res.end();
+    }
   } catch (error) {
     console.error('Video proxy error:', error.message);
     res.status(500).end();

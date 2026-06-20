@@ -118,14 +118,14 @@ app.get('/api/player-proxy', async (req, res) => {
     // Regenerate signature dynamically to prevent "Time not Found" / expiration issues
     const ts = Math.floor(Date.now() / 1000);
     const sig = crypto.createHmac('sha256', 'net###@@sss').update(String(ts)).digest('hex');
-    
+
     let targetUrl = url;
     if (targetUrl.includes('ts=')) {
       targetUrl = targetUrl.replace(/ts=\d+/g, `ts=${ts}`);
     } else {
       targetUrl += `&ts=${ts}`;
     }
-    
+
     if (targetUrl.includes('sig=')) {
       targetUrl = targetUrl.replace(/sig=[a-f0-9]+/g, `sig=${sig}`);
     } else {
@@ -179,8 +179,8 @@ app.get('/api/player-proxy', async (req, res) => {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switching and route video streams through our local video-proxy
-    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return "' + localOrigin + '/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); ');
+    // Fix resolution switching by making play_url return the url directly
+    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
 
     const extraStyles = `
       <style>
@@ -247,64 +247,18 @@ app.get('/api/dummy.js', (req, res) => {
   res.status(200).send('/* Blocked Script Placeholder */');
 });
 
-// Video Stream Proxy to bypass CDN hotlink protections (Referer/Cookie requirements)
-app.get('/api/video-proxy', async (req, res) => {
-  try {
-    const { streamUrl } = req.query;
-    if (!streamUrl) {
-      return res.status(400).send('streamUrl parameter is required');
-    }
-
-    const range = req.headers.range || 'bytes=0-';
-
-    const headers = {
-      'User-Agent': req.headers['user-agent'] || '',
-      'Referer': 'https://netmirror.global/',
-      'Origin': 'https://netmirror.global',
-      'Range': range,
-    };
-
-    if (req.headers.cookie) {
-      headers['Cookie'] = req.headers.cookie;
-    }
-
-    const response = await fetchWithRetry(streamUrl, { headers });
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!response.ok || contentType.includes('text/html')) {
-      res.setHeader('Content-Type', 'video/mp4');
-      return res.status(response.status || 404).end();
-    }
-
-    res.writeHead(response.status, {
-      'Content-Type': 'video/mp4',
-      'Content-Range': response.headers.get('content-range') || '',
-      'Accept-Ranges': 'bytes',
-      'Content-Length': response.headers.get('content-length') || '',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-    });
-
-    response.body.pipe(res);
-  } catch (error) {
-    console.error('Video proxy error:', error.message);
-    res.status(500).end();
-  }
-});
-
-
 // 1. Get movies / list / category
 app.get('/api/movies', async (req, res) => {
   try {
     const { page = 1, category } = req.query;
     const pageIndex = Math.max(0, parseInt(page) - 1);
     const db = readDatabase();
-    
+
     let filtered = db.movies;
     if (category && category !== 'home') {
       filtered = db.movies.filter(m => m.category === category);
     }
-    
+
     // Paginate results (24 per page)
     const paginated = filtered.slice(pageIndex * 24, (pageIndex + 1) * 24);
 
@@ -330,13 +284,13 @@ app.get('/api/search', async (req, res) => {
     }
     const pageIndex = Math.max(0, parseInt(page) - 1);
     const db = readDatabase();
-    
-    const filtered = db.movies.filter(movie => 
+
+    const filtered = db.movies.filter(movie =>
       movie.title.toLowerCase().includes(query.toLowerCase())
     );
-    
+
     const paginated = filtered.slice(pageIndex * 24, (pageIndex + 1) * 24);
-    
+
     res.json({
       success: true,
       query,
@@ -356,11 +310,11 @@ app.post('/api/search', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Query parameter is required' });
     }
     const db = readDatabase();
-    const filtered = db.movies.filter(movie => 
+    const filtered = db.movies.filter(movie =>
       movie.title.toLowerCase().includes(query.toLowerCase())
     );
     const paginated = filtered.slice(0, 24);
-    
+
     res.json({
       success: true,
       query,
