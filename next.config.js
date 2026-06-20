@@ -9,6 +9,10 @@ module.exports = {
         source: '/sitemap.xml',
         destination: '/api/sitemap',
       },
+      {
+        source: '/api/dummy.js',
+        destination: '/api/dummy',
+      },
     ];
   },
   async headers() {

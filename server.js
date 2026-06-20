@@ -115,9 +115,24 @@ app.get('/api/player-proxy', async (req, res) => {
       return res.status(400).send('URL query parameter is required');
     }
 
-    console.log(`Proxying player request for: ${url}`);
+    // Regenerate signature dynamically to prevent "Time not Found" / expiration issues
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHmac('sha256', 'net###@@sss').update(String(ts)).digest('hex');
+    
+    let targetUrl = url;
+    if (targetUrl.includes('ts=')) {
+      targetUrl = targetUrl.replace(/ts=\d+/g, `ts=${ts}`);
+    } else {
+      targetUrl += `&ts=${ts}`;
+    }
+    
+    if (targetUrl.includes('sig=')) {
+      targetUrl = targetUrl.replace(/sig=[a-f0-9]+/g, `sig=${sig}`);
+    } else {
+      targetUrl += `&sig=${sig}`;
+    }
 
-    const response = await fetchWithRetry(url, {
+    const response = await fetchWithRetry(targetUrl, {
       headers: {
         'Referer': 'https://netmirror.global/',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
