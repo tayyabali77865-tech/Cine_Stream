@@ -1,0 +1,21 @@
+{
+  "name": "9xmovie-api",
+  "version": "1.0.0",
+  "description": "API to scrape movie metadata and links from 9xmovielive",
+  "main": "server.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "mongodb": "^6.21.0",
+    "mongoose": "^9.7.1",
+    "next": "^14.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

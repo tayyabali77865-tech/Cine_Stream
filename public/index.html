@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CineStream - Watch & Download Latest Movies</title>
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css?v=3.0">
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <nav class="navbar">
+    <div class="nav-container">
+      <button id="menu-toggle" class="menu-toggle-btn" title="Toggle Menu">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+
+      <a href="#" class="brand" id="nav-brand">
+        <i class="fa-solid fa-play-blur logo-icon"></i>
+        <span>Cine<span class="highlight">Stream</span></span>
+      </a>
+
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search movies, series...">
+        <button id="search-btn"><i class="fa-solid fa-magnifying-glass"></i></button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="main-layout">
+    <!-- Sidebar / Category Section -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h3><i class="fa-solid fa-list"></i> Categories</h3>
+      </div>
+      <ul class="category-list" id="category-list">
+        <!-- Loaded dynamically -->
+        <li class="loading-categories">
+          <div class="skeleton skeleton-text"></div>
+          <div class="skeleton skeleton-text"></div>
+          <div class="skeleton skeleton-text"></div>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- Content Area -->
+    <main class="content">
+      <!-- Active Filter Banner -->
+      <div class="filter-banner" id="filter-banner" style="display: none;">
+        <span id="filter-title">Category: Bollywood</span>
+        <button id="clear-filter" class="btn-clear"><i class="fa-solid fa-xmark"></i> Clear</button>
+      </div>
+
+      <!-- Movie Grid -->
+      <div class="movies-grid" id="movies-grid">
+        <!-- Loaded dynamically (Skeletons shown first) -->
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-image"></div>
+          <div class="skeleton skeleton-title"></div>
+        </div>
+      </div>
+
+      <!-- Pagination / Load More -->
+      <div class="pagination-container" id="pagination-container" style="display: none;">
+        <button id="load-more-btn" class="btn-primary">
+          <span>Load More </span>
+          <i class="fa-solid fa-arrow-down-long"></i>
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Movie Details Modal -->
+  <div class="modal" id="details-modal">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <button class="modal-close" id="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-body" id="modal-body">
+        <!-- Dynamically loaded details -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <p>&copy; 2026 CineStream. Powered by Tayyab Ali | All Rights Reserved</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
