@@ -18,7 +18,7 @@ module.exports = {
         headers: [
           {
             key: 'X-Frame-Options',
-            value: 'DENY',
+            value: 'SAMEORIGIN',
           },
           {
             key: 'X-Content-Type-Options',
@@ -38,7 +38,7 @@ module.exports = {
           },
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https: blob:; connect-src 'self' https:; frame-src 'self' https:; frame-ancestors 'none';",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https: blob:; connect-src 'self' https:; frame-src 'self' https:; frame-ancestors 'self';",
           }
         ],
       },
