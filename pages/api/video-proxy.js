@@ -11,8 +11,8 @@ export default async function handler(req, res) {
 
     const headers = {
       'User-Agent': req.headers['user-agent'] || '',
-      'Referer': 'https://netmirror.global/',
-      'Origin': 'https://netmirror.global',
+      'Referer': 'https://spedostream2.shop/',
+      'Origin': 'https://spedostream2.shop',
       'Range': range,
     };
 
@@ -25,7 +25,8 @@ export default async function handler(req, res) {
     const contentType = response.headers.get('content-type') || '';
     if (!response.ok || contentType.includes('text/html')) {
       res.setHeader('Content-Type', 'video/mp4');
-      return res.status(response.status || 404).end();
+      res.status(response.status || 404).end();
+      return;
     }
 
     const setCookieHeaders = response.headers.getSetCookie 
