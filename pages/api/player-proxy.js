@@ -38,6 +38,12 @@ export default async function handler(req, res) {
     // Force extension status to true
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
 
+    // Strip ad/tracking scripts to prevent CSP violations and tracking
+    html = html.replace(/<script[^>]*src=["'][^"']*(llvpn\.com|adblock|tracking)[^"']*["'][^>]*><\/script>/gi, '');
+
+    // Bypass adblock.com detection request by replacing it with a safe data URI
+    html = html.replace(/https?:\/\/adblock\.com/g, 'data:text/plain,ok');
+
     // Fix resolution switches
     html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return play_url; ');
 
