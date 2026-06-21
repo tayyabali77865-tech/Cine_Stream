@@ -39,22 +39,26 @@ export default async function handler(req, res) {
       targetUrl += `&sig=${sig}`;
     }
 
-    const response = await fetchWithRetry(targetUrl, {
-      headers: {
-        'Referer': 'https://netmirror.global/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
-    });
+    const headers = {
+      'Referer': 'https://netmirror.global/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+
+    if (req.headers.cookie) {
+      headers['Cookie'] = req.headers.cookie;
+    }
+
+    const response = await fetchWithRetry(targetUrl, { headers });
 
     if (!response.ok) {
       return res.status(response.status).send(`Proxy error: ${response.statusText}`);
     }
 
     // Forward Set-Cookie headers from target server to client browser to propagate the session
-    const setCookieHeaders = response.headers.getSetCookie 
-      ? response.headers.getSetCookie() 
+    const setCookieHeaders = response.headers.getSetCookie
+      ? response.headers.getSetCookie()
       : response.headers.get('set-cookie');
-      
+
     if (setCookieHeaders) {
       res.setHeader('Set-Cookie', setCookieHeaders);
     }
@@ -79,6 +83,20 @@ export default async function handler(req, res) {
         window.canRunAds = true;
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
+
+        // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
+        document.addEventListener('DOMContentLoaded', () => {
+          const observer = new MutationObserver((mutations) => {
+            const video = document.querySelector('video');
+            if (video) {
+              video.setAttribute('referrerpolicy', 'no-referrer');
+              video.removeAttribute('crossorigin');
+              console.log('Applied no-referrer to video element successfully');
+              observer.disconnect();
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+        });
       </script>
     `;
     html = html.replace(/<head>/i, `<head>${adblockBypassScript}<base href="${baseHref}">`);
@@ -95,8 +113,9 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switches and route video streams through our local video-proxy
-    html = html.replace('function play_url(play_url,ext=0){', 'function play_url(play_url,ext=0){ return "' + localOrigin + '/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); ');
+    // Fix resolution switches to return the absolute local proxy URL so that base-href resolution doesn't send it to the remote CDN
+    html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
+      return "${localOrigin}/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
       <style>
