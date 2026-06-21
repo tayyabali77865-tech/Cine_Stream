@@ -48,7 +48,9 @@ export default async function handler(req, res) {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const response = await fetchWithRetry(targetUrl, { headers });
+    const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
+    const response = await fetchWithRetry(fetchUrl, { headers });
 
     if (!response.ok) {
       return res.status(response.status).send(`Proxy error: ${response.statusText}`);
