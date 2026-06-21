@@ -1,5 +1,5 @@
-const fetch = require('node-fetch');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+import fetch from 'node-fetch';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 let cachedProxies = [];
 let lastFetchedTime = 0;
