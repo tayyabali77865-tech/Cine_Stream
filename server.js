@@ -141,7 +141,9 @@ app.get('/api/player-proxy', async (req, res) => {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const response = await fetchWithRetry(targetUrl, { headers });
+    const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
+    const response = await fetchWithRetry(fetchUrl, { headers });
 
     if (!response.ok) {
       return res.status(response.status).send(`Proxy error: ${response.statusText}`);
@@ -196,9 +198,10 @@ app.get('/api/player-proxy', async (req, res) => {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switching by making play_url return the absolute local proxy URL so that base-href resolution doesn't send it to the remote CDN
+    // Fix resolution switching by making play_url return the absolute proxy URL
+    const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
-      return "${localOrigin}/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); `);
+      return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
       <style>
