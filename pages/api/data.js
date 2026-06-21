@@ -32,9 +32,6 @@ function mapMovieResults(results) {
   if (!results || !Array.isArray(results)) return [];
   return results.map(item => {
     let poster = item.backdrop_path || '';
-    if (poster) {
-      poster = poster.replace('pbcdnw', 'pacdn');
-    }
     return {
       title: (item.title || '').trim(),
       url: `https://netmirror.global/${item.media_type || 'movie'}/${item.id}`,
@@ -66,13 +63,43 @@ export default async function handler(req, res) {
     const limit = 24;
     const skip = pageIndex * limit;
 
-    const totalCount = await db.collection('movies').countDocuments(queryObj);
-    const paginated = await db.collection('movies')
-      .find(queryObj)
-      .sort({ scrapedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
+    let paginated;
+    let totalCount;
+
+    if (category === 'trending' || !category) {
+      const allTrending = await db.collection('movies')
+        .find({ category: 'trending' })
+        .sort({ scrapedAt: -1 })
+        .toArray();
+
+      const sortedTrending = allTrending.sort((a, b) => {
+        const aTitle = a.title.toLowerCase();
+        const bTitle = b.title.toLowerCase();
+
+        const aIsAnime = aTitle.includes('anime') || a.category === 'anime';
+        const bIsAnime = bTitle.includes('anime') || b.category === 'anime';
+        if (aIsAnime && !bIsAnime) return -1;
+        if (!aIsAnime && bIsAnime) return 1;
+
+        const aIsIndian = aTitle.includes('[hindi]') || aTitle.includes('[tamil]') || aTitle.includes('[telugu]') || aTitle.includes('bollywood') || aTitle.includes('south hindi');
+        const bIsIndian = bTitle.includes('[hindi]') || bTitle.includes('[tamil]') || bTitle.includes('[telugu]') || bTitle.includes('bollywood') || bTitle.includes('south hindi');
+        if (!aIsIndian && bIsIndian) return -1;
+        if (aIsIndian && !bIsIndian) return 1;
+
+        return 0;
+      });
+
+      totalCount = sortedTrending.length;
+      paginated = sortedTrending.slice(skip, skip + limit);
+    } else {
+      totalCount = await db.collection('movies').countDocuments(queryObj);
+      paginated = await db.collection('movies')
+        .find(queryObj)
+        .sort({ scrapedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+    }
       
     if (totalCount > 0) {
       return res.status(200).json({

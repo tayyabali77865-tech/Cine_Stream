@@ -92,9 +92,6 @@ function mapMovieResults(results) {
   if (!results || !Array.isArray(results)) return [];
   return results.map(item => {
     let poster = item.backdrop_path || '';
-    if (poster) {
-      poster = poster.replace('pbcdnw', 'pacdn');
-    }
     return {
       title: (item.title || '').trim(),
       url: `https://netmirror.global/${item.media_type || 'movie'}/${item.id}`,
