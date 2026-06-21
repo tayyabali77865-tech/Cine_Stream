@@ -9,7 +9,7 @@ async function getProxiesList() {
   // Fetch every 5 minutes
   if (cachedProxies.length === 0 || (now - lastFetchedTime) > 5 * 60 * 1000) {
     try {
-      const res = await fetch('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000&country=all&ssl=all&anonymity=anonymous');
+      const res = await fetch('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=1500&country=all&ssl=all&anonymity=anonymous');
       if (res.ok) {
         const text = await res.text();
         const list = text.split('\r\n').map(p => p.trim()).filter(Boolean);
@@ -56,11 +56,11 @@ export default async function handler(req, res) {
       let success = false;
       let lastErr = null;
 
-      // Try up to 4 proxies from the pool
+      // Try up to 3 fast proxies from the pool to avoid Vercel 10s timeout
       const testedProxies = [];
       const shuffleList = [...proxyList].sort(() => 0.5 - Math.random());
 
-      for (let i = 0; i < Math.min(4, shuffleList.length); i++) {
+      for (let i = 0; i < Math.min(3, shuffleList.length); i++) {
         const proxy = shuffleList[i];
         testedProxies.push(proxy);
         const agent = new HttpsProxyAgent(`http://${proxy}`);
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
             headers,
             agent,
             redirect: 'manual',
-            timeout: 4000 // 4s timeout per proxy request
+            timeout: 2000 // 2 seconds timeout per proxy request
           });
 
           if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
