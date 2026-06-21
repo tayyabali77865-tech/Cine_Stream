@@ -388,6 +388,7 @@ async function openMovieDetail(slug, updateHash = true) {
             height="100%" 
             frameborder="0" 
             allowfullscreen="allowfullscreen"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
             scrolling="no">
           </iframe>
         `;

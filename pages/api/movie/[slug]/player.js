@@ -74,13 +74,14 @@ export default async function handler(req, res) {
     }
 
     const item = data.results[0];
+    const useProxy = process.env.CLOUDFLARE_WORKER_URL ? true : false;
     let videoUrl = '';
     if (mediaType === 'movie' && item.embed) {
       const rawUrl = generateMoviePlayerUrl(item.embed, item.embed_en);
-      videoUrl = `/api/player-proxy?url=${encodeURIComponent(rawUrl)}`;
+      videoUrl = useProxy ? `/api/player-proxy?url=${encodeURIComponent(rawUrl)}` : rawUrl;
     } else {
       const rawUrl = generateSeriesPlayerUrl(item.subjectid, item.title, item.dp, se, ep);
-      videoUrl = `/api/player-proxy?url=${encodeURIComponent(rawUrl)}`;
+      videoUrl = useProxy ? `/api/player-proxy?url=${encodeURIComponent(rawUrl)}` : rawUrl;
     }
 
     return res.status(200).json({
