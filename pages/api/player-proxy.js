@@ -86,6 +86,16 @@ export default async function handler(req, res) {
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
 
+        // Dynamic extension detection
+        window.hasExtensionActive = false;
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
+            window.hasExtensionActive = true;
+            console.log("CineStream: Extension detected, bypassing proxy.");
+          }
+        });
+        window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
+
         // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
         document.addEventListener('DOMContentLoaded', () => {
           const observer = new MutationObserver((mutations) => {
@@ -117,6 +127,9 @@ export default async function handler(req, res) {
 
     const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
+      if (window.hasExtensionActive) {
+        return play_url;
+      }
       return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
