@@ -337,7 +337,9 @@ function createMovieCard(movie) {
     </div>
   `;
 
-  div.addEventListener('click', () => openMovieDetail(movie.slug, true, true));
+  div.addEventListener('click', () => {
+    window.location.hash = movie.slug;
+  });
   return div;
 }
 
