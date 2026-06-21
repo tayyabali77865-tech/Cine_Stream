@@ -81,8 +81,26 @@ export default async function handler(req, res) {
         if (aIsAnime && !bIsAnime) return -1;
         if (!aIsAnime && bIsAnime) return 1;
 
-        const aIsIndian = aTitle.includes('[hindi]') || aTitle.includes('[tamil]') || aTitle.includes('[telugu]') || aTitle.includes('bollywood') || aTitle.includes('south hindi');
-        const bIsIndian = bTitle.includes('[hindi]') || bTitle.includes('[tamil]') || bTitle.includes('[telugu]') || bTitle.includes('bollywood') || bTitle.includes('south hindi');
+        const isIndian = (item, title) => {
+          const cat = (item.category || '').toLowerCase();
+          if (cat === 'bollywood' || cat === 'south-hindi') return true;
+          
+          const indianKeywords = [
+            'bollywood', 'south hindi', 'tollywood', 'kollywood', 'punjabi', 
+            'tamil', 'telugu', 'kannada', 'malayalam', 'bhojpuri', 'bengali', 
+            'marathi', 'indian', 'kapil sharma', 'bigg boss', 'indian idol', 
+            'india\'s got talent', 'super dancer', 'pati patni aur panga', 
+            'two much with kajol', 'pitch to get rich'
+          ];
+          if (indianKeywords.some(kw => title.includes(kw))) return true;
+          
+          if (cat === 'reality-tv' && title.includes('[hindi]')) return true;
+          
+          return false;
+        };
+
+        const aIsIndian = isIndian(a, aTitle);
+        const bIsIndian = isIndian(b, bTitle);
         if (!aIsIndian && bIsIndian) return -1;
         if (aIsIndian && !bIsIndian) return 1;
 
