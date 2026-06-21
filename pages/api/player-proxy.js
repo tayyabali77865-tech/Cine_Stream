@@ -117,10 +117,6 @@ export default async function handler(req, res) {
 
     const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
-      if (ext == 1) {
-        art.notice.show = 'Fast Loading.. (With Extension)';
-        return play_url;
-      }
       return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
