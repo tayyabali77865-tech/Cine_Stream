@@ -51,24 +51,29 @@ export default async function handler(req, res) {
         'Accept-Language': 'en-US,en;q=0.9',
       };
 
-      // 1. Try direct high-speed fetch first
-      try {
-        console.log(`[Video Proxy] Attempting direct fetch for: ${currentUrl}`);
-        response = await fetch(currentUrl, {
-          method: 'GET',
-          headers,
-          redirect: 'manual',
-          timeout: 3000 // 3 seconds timeout for direct fetch
-        });
+      // 1. Try direct high-speed fetch first (skip for known blocked domains like hakunaymatata.com)
+      const isBlockedDomain = currentUrl.includes('hakunaymatata.com');
+      if (!isBlockedDomain) {
+        try {
+          console.log(`[Video Proxy] Attempting direct fetch for: ${currentUrl}`);
+          response = await fetch(currentUrl, {
+            method: 'GET',
+            headers,
+            redirect: 'manual',
+            timeout: 2500 // 2.5 seconds timeout for direct fetch
+          });
 
-        if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
-          isDirectSuccess = true;
-          console.log(`[Video Proxy] Direct fetch succeeded with status ${response.status}`);
-        } else {
-          console.warn(`[Video Proxy] Direct fetch returned status ${response.status}`);
+          if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
+            isDirectSuccess = true;
+            console.log(`[Video Proxy] Direct fetch succeeded with status ${response.status}`);
+          } else {
+            console.warn(`[Video Proxy] Direct fetch returned status ${response.status}`);
+          }
+        } catch (err) {
+          console.warn(`[Video Proxy] Direct fetch failed/timed out: ${err.message}`);
         }
-      } catch (err) {
-        console.warn(`[Video Proxy] Direct fetch failed/timed out: ${err.message}`);
+      } else {
+        console.log(`[Video Proxy] Skipping direct fetch for known blocked domain: ${urlObj.hostname}`);
       }
 
       // 2. Fallback to public proxy rotation if direct fetch failed
