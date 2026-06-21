@@ -57,8 +57,10 @@ export default async function handler(req, res) {
     const db = client.db();
     
     const queryObj = {};
-    if (category && category !== 'home' && category !== 'trending') {
+    if (category && category !== 'home') {
       queryObj.category = category;
+    } else if (!category) {
+      queryObj.category = 'trending';
     }
     
     const limit = 24;

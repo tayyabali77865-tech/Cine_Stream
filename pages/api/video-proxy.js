@@ -40,11 +40,9 @@ export default async function handler(req, res) {
     let redirectsFollowed = 0;
     const maxRedirects = 5;
     let response;
-
-    const proxyList = await getProxiesList();
+    let isDirectSuccess = false;
 
     while (redirectsFollowed < maxRedirects) {
-      const urlObj = new URL(currentUrl);
       const headers = {
         'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Range': range,
@@ -53,50 +51,72 @@ export default async function handler(req, res) {
         'Accept-Language': 'en-US,en;q=0.9',
       };
 
-      let success = false;
-      let lastErr = null;
+      // 1. Try direct high-speed fetch first
+      try {
+        console.log(`[Video Proxy] Attempting direct fetch for: ${currentUrl}`);
+        response = await fetch(currentUrl, {
+          method: 'GET',
+          headers,
+          redirect: 'manual',
+          timeout: 3000 // 3 seconds timeout for direct fetch
+        });
 
-      // Try up to 3 fast proxies from the pool to avoid Vercel 10s timeout
-      const testedProxies = [];
-      const shuffleList = [...proxyList].sort(() => 0.5 - Math.random());
-
-      for (let i = 0; i < Math.min(3, shuffleList.length); i++) {
-        const proxy = shuffleList[i];
-        testedProxies.push(proxy);
-        const agent = new HttpsProxyAgent(`http://${proxy}`);
-
-        try {
-          response = await fetch(currentUrl, {
-            method: req.method || 'GET',
-            headers,
-            agent,
-            redirect: 'manual',
-            timeout: 2000 // 2 seconds timeout per proxy request
-          });
-
-          if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
-            success = true;
-            break;
-          } else {
-            console.warn(`[Proxy Rotator] Proxy ${proxy} returned status ${response.status} for ${currentUrl}`);
-          }
-        } catch (err) {
-          lastErr = err;
+        if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
+          isDirectSuccess = true;
+          console.log(`[Video Proxy] Direct fetch succeeded with status ${response.status}`);
+        } else {
+          console.warn(`[Video Proxy] Direct fetch returned status ${response.status}`);
         }
+      } catch (err) {
+        console.warn(`[Video Proxy] Direct fetch failed/timed out: ${err.message}`);
       }
 
-      // If all proxy attempts failed, try a direct fetch as fallback
-      if (!success) {
-        console.warn(`[Proxy Rotator] All proxies failed. Tried: ${testedProxies.join(', ')}. Falling back to direct fetch.`);
-        try {
-          response = await fetch(currentUrl, {
-            method: req.method || 'GET',
-            headers,
-            redirect: 'manual',
-            timeout: 6000
-          });
-        } catch (err) {
-          return res.status(500).send(`Proxy Error: ${err.message || lastErr?.message}`);
+      // 2. Fallback to public proxy rotation if direct fetch failed
+      if (!isDirectSuccess) {
+        console.log(`[Video Proxy] Direct fetch failed or blocked. Falling back to public proxy rotation.`);
+        const proxyList = await getProxiesList();
+        let success = false;
+
+        const shuffleList = [...proxyList].sort(() => 0.5 - Math.random());
+        for (let i = 0; i < Math.min(3, shuffleList.length); i++) {
+          const proxy = shuffleList[i];
+          const agent = new HttpsProxyAgent(`http://${proxy}`);
+
+          try {
+            console.log(`[Video Proxy] Attempting proxy fetch via: ${proxy}`);
+            response = await fetch(currentUrl, {
+              method: 'GET',
+              headers,
+              agent,
+              redirect: 'manual',
+              timeout: 2000 // 2 seconds timeout per proxy request
+            });
+
+            if (response.status === 206 || response.status === 200 || (response.status >= 300 && response.status < 400)) {
+              success = true;
+              console.log(`[Video Proxy] Proxy ${proxy} fetch succeeded with status ${response.status}`);
+              break;
+            } else {
+              console.warn(`[Video Proxy] Proxy ${proxy} returned status ${response.status}`);
+            }
+          } catch (err) {
+            console.warn(`[Video Proxy] Proxy ${proxy} request failed:`, err.message);
+          }
+        }
+
+        // Ultimate fallback: direct fetch without strict timeout limits if proxies also failed
+        if (!success) {
+          console.warn(`[Video Proxy] All proxies failed. Retrying direct fetch without strict timeout.`);
+          try {
+            response = await fetch(currentUrl, {
+              method: 'GET',
+              headers,
+              redirect: 'manual',
+              timeout: 6000
+            });
+          } catch (err) {
+            return res.status(500).send(`Proxy Error: ${err.message}`);
+          }
         }
       }
 
@@ -105,6 +125,8 @@ export default async function handler(req, res) {
         if (!location) break;
         currentUrl = new URL(location, currentUrl).toString();
         redirectsFollowed++;
+        // Reset success flag for next redirect hop
+        isDirectSuccess = false;
       } else {
         break;
       }
@@ -128,7 +150,6 @@ export default async function handler(req, res) {
     if (contentLength) res.setHeader('Content-Length', contentLength);
 
     res.status(response.status);
-
     response.body.pipe(res);
 
   } catch (error) {

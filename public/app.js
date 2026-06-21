@@ -337,7 +337,7 @@ function createMovieCard(movie) {
     </div>
   `;
 
-  div.addEventListener('click', () => openMovieDetail(movie.slug));
+  div.addEventListener('click', () => openMovieDetail(movie.slug, true, true));
   return div;
 }
 
@@ -351,7 +351,7 @@ function getEpisodesArray(ep) {
 }
 
 // Open Details Modal
-async function openMovieDetail(slug, updateHash = true) {
+async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) {
   if (updateHash) {
     window.location.hash = slug;
   }
@@ -442,6 +442,21 @@ async function openMovieDetail(slug, updateHash = true) {
         const cleanTitle = movie.title.split('[')[0].split('Season')[0].split('S1')[0].split('complete')[0].trim();
         const relatedRes = await fetch(`/api/movie/${slug}/related?title=${encodeURIComponent(cleanTitle)}`);
         const relatedData = await relatedRes.json();
+
+        if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
+          // If auto-switch is enabled and Hindi dubbed version is available, switch to it!
+          if (allowAutoSwitch) {
+            const hindiDubbed = relatedData.data.find(item => {
+              const titleLower = item.title.toLowerCase();
+              return titleLower.includes('[hindi]') || titleLower.includes('hindi dubbed');
+            });
+            if (hindiDubbed && hindiDubbed.slug !== slug) {
+              console.log('Auto-switching to Hindi Dubbed version:', hindiDubbed.title);
+              openMovieDetail(hindiDubbed.slug, updateHash, false);
+              return;
+            }
+          }
+        }
 
         let dubsSelectHTML = '';
         if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
@@ -542,7 +557,7 @@ async function openMovieDetail(slug, updateHash = true) {
             const dubSelect = document.getElementById('dub-select');
             if (dubSelect) {
               dubSelect.addEventListener('change', () => {
-                openMovieDetail(dubSelect.value);
+                openMovieDetail(dubSelect.value, true, false);
               });
             }
           }
