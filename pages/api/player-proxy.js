@@ -115,6 +115,10 @@ export default async function handler(req, res) {
 
     // Fix resolution switches to return the absolute local proxy URL so that base-href resolution doesn't send it to the remote CDN
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
+      if (ext == 1) {
+        art.notice.show = 'Fast Loading.. (With Extension)';
+        return play_url;
+      }
       return "${localOrigin}/api/video-proxy?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
