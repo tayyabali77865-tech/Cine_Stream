@@ -4,10 +4,12 @@ export const config = {
 
 // CDN hostname → trusted Referer/Origin map
 const CDN_REFERER_MAP = [
-  { pattern: 'hakunaymatata.com', referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
+  { pattern: 'hakunaymatata.com', referer: 'https://spedostream2.shop/', origin: 'https://spedostream2.shop' },
+  { pattern: 'bcdnxw',            referer: 'https://spedostream2.shop/', origin: 'https://spedostream2.shop' },
   { pattern: 'megacloud',         referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
   { pattern: 'rapid-cloud',       referer: 'https://rapid-cloud.co/', origin: 'https://rapid-cloud.co' },
   { pattern: 'netmirror',         referer: 'https://netmirror.global/', origin: 'https://netmirror.global' },
+  { pattern: 'spedostream',       referer: 'https://spedostream2.shop/', origin: 'https://spedostream2.shop' },
 ];
 
 function getRefererForUrl(url) {
