@@ -1,6 +1,6 @@
 // State Management
 let currentPage = 1;
-let currentCategory = 'hollywood'; // Set default category to hollywood
+let currentCategory = 'trending'; // Set default category to trending
 let currentQuery = '';
 let isLoading = false;
 let loadedMovies = [];
@@ -163,8 +163,8 @@ function setActiveCategoryLi(activeLi) {
 // Render next batch of items (up to ITEMS_PER_PAGE)
 function renderNextBatch() {
   const nextBatch = loadedMovies.slice(displayedCount, displayedCount + ITEMS_PER_PAGE);
-  nextBatch.forEach(movie => {
-    const card = createMovieCard(movie);
+  nextBatch.forEach((movie, idx) => {
+    const card = createMovieCard(movie, displayedCount + idx);
     moviesGrid.appendChild(card);
   });
   displayedCount += nextBatch.length;
@@ -308,7 +308,7 @@ async function handleSearch() {
 }
 
 // Create Card Element
-function createMovieCard(movie) {
+function createMovieCard(movie, index = 100) {
   const div = document.createElement('div');
   div.className = 'movie-card';
 
@@ -323,9 +323,16 @@ function createMovieCard(movie) {
   // Format badge
   const formatBadge = movie.media_type === 'tv' ? 'Series' : 'Movie';
 
+  // Use the direct poster URL from the CDN to avoid local server queuing
+  const proxiedPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+
+  // Eager loading and high fetchpriority for the first 8 images above the fold
+  const isAboveFold = index < 8 && currentPage === 1;
+  const loadingAttr = isAboveFold ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+
   div.innerHTML = `
     <div class="card-poster-wrapper">
-      <img src="${movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster'}" alt="${movie.title}" class="card-poster" loading="lazy" onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
+      <img src="${proxiedPoster}" alt="${movie.title}" class="card-poster" ${loadingAttr} onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
       <div class="card-badge">${audioBadge}</div>
     </div>
     <div class="card-info">
@@ -419,6 +426,8 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         </div>
       `;
 
+      const proxiedDetailPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+
       modalBody.innerHTML = `
         <div class="details-header">
           <h2 class="details-title">${movie.title}</h2>
@@ -433,7 +442,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
 
         <div class="details-info-grid">
           <div>
-            <img src="${movie.poster}" alt="Poster" class="details-poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
+            <img src="${proxiedDetailPoster}" alt="Poster" class="details-poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
           </div>
           <div class="details-desc-wrapper">
             <div class="meta-badges">
@@ -759,7 +768,7 @@ function closeModal(updateHash = true) {
 // Reset / Clear states
 function resetState() {
   currentPage = 1;
-  currentCategory = 'hollywood';
+  currentCategory = 'trending';
   currentQuery = '';
   searchInput.value = '';
   filterBanner.style.display = 'none';
@@ -770,7 +779,7 @@ function resetState() {
   const categories = categoryList.querySelectorAll('li');
   categories.forEach(li => {
     li.classList.remove('active');
-    if (li.innerHTML.toLowerCase().includes('hollywood')) {
+    if (li.innerHTML.toLowerCase().includes('trending')) {
       li.classList.add('active');
     }
   });
