@@ -48,19 +48,74 @@ export default async function handler(req, res) {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const workerUrl = process.env.CLOUDFLARE_WORKER_URL || 'https://cine-stream-proxy.tayyabali77865.workers.dev/';
-    const fetchUrl = `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}`;
-    const response = await fetchWithRetry(fetchUrl, { headers });
+    // ── Rotating Proxy Chain ──────────────────────────────────────────────
+    // Tries each approach in order; uses first successful HTML response.
+    // All free, all within Vercel — no extra hosting or credit card needed.
+    const PROXY_CHAIN = [
+      // 1. Primary: HF Space / Cloudflare Worker (fastest when alive)
+      async () => {
+        const workerUrl = process.env.CLOUDFLARE_WORKER_URL || 'https://cine-stream-proxy.tayyabali77865.workers.dev/';
+        const fetchUrl = `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}`;
+        const r = await fetch(fetchUrl, { headers, signal: AbortSignal.timeout(5000) });
+        if (!r.ok) throw new Error(`Worker ${r.status}`);
+        return r;
+      },
+      // 2. Direct fetch from Vercel Edge to player server
+      async () => {
+        const r = await fetch(targetUrl, { headers, signal: AbortSignal.timeout(5000), redirect: 'follow' });
+        if (!r.ok) throw new Error(`Direct ${r.status}`);
+        const text = await r.text();
+        if (text.includes('Server Buzy') || text.length < 500) throw new Error('Direct: server busy or empty');
+        return new Response(text, { status: 200, headers: r.headers });
+      },
+      // 3. corsproxy.io — free public CORS proxy
+      async () => {
+        const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
+          headers: { 'User-Agent': headers['User-Agent'] },
+          signal: AbortSignal.timeout(6000)
+        });
+        if (!r.ok) throw new Error(`corsproxy.io ${r.status}`);
+        return r;
+      },
+      // 4. allorigins.win — another free CORS proxy
+      async () => {
+        const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`, {
+          signal: AbortSignal.timeout(6000)
+        });
+        if (!r.ok) throw new Error(`allorigins ${r.status}`);
+        return r;
+      },
+      // 5. codetabs.com proxy — last resort free option
+      async () => {
+        const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, {
+          signal: AbortSignal.timeout(7000)
+        });
+        if (!r.ok) throw new Error(`codetabs ${r.status}`);
+        return r;
+      },
+    ];
 
-    if (!response.ok) {
-      return res.status(response.status).send(`Proxy error: ${response.statusText}`);
+    let response = null;
+    let lastError = '';
+    for (const tryProxy of PROXY_CHAIN) {
+      try {
+        response = await tryProxy();
+        console.log('[Proxy Rotation] Success with proxy attempt.');
+        break;
+      } catch (err) {
+        lastError = err.message;
+        console.warn('[Proxy Rotation] Attempt failed:', err.message, '— trying next...');
+      }
     }
 
-    // Forward Set-Cookie headers from target server to client browser to propagate the session
+    if (!response) {
+      return res.status(502).send(`All proxies failed. Last error: ${lastError}`);
+    }
+
+    // Forward Set-Cookie headers from target server to client browser
     const setCookieHeaders = response.headers.getSetCookie
       ? response.headers.getSetCookie()
       : response.headers.get('set-cookie');
-
     if (setCookieHeaders) {
       res.setHeader('Set-Cookie', setCookieHeaders);
     }
