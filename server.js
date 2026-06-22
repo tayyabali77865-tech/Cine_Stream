@@ -148,6 +148,83 @@ app.get('/api/player-proxy', async (req, res) => {
 
     let html = await response.text();
 
+    if (html.includes('Server Buzy.Re try') || html.includes('Server Buzy')) {
+      const host = req.headers.host || 'localhost:3000';
+      const proto = req.headers['x-forwarded-proto'] || 'http';
+      const localOrigin = `${proto}://${host}`;
+
+      html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Loading...</title>
+        <script>
+          window.hasExtensionActive = false;
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
+              window.hasExtensionActive = true;
+              console.log("Extension detected on Server Busy fallback, redirecting directly.");
+              window.location.href = "${url}";
+            }
+          });
+
+          // Check for extension
+          let checkCount = 0;
+          const checkInterval = setInterval(() => {
+            if (window.hasExtensionActive) {
+              clearInterval(checkInterval);
+              return;
+            }
+            if (checkCount > 25) {
+              clearInterval(checkInterval);
+              // Fallback: show retry alert or reload after a short delay
+              document.getElementById('status-msg').innerHTML = "Server is currently busy. Retrying automatically in 3 seconds...<br><span style='font-size:12px;color:#888;'>Tip: Install the NetMirror Extension for instant bypass.</span>";
+              setTimeout(() => {
+                window.location.reload();
+              }, 3000);
+              return;
+            }
+            window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
+            checkCount++;
+          }, 60);
+        </script>
+        <style>
+          body {
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+          }
+          .spinner {
+            border: 4px solid rgba(255,255,255,0.1);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border-left-color: #09d;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+            display: inline-block;
+          }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div>
+          <div class="spinner"></div>
+          <div id="status-msg">Connecting to secure stream...</div>
+        </div>
+      </body>
+      </html>
+      `;
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(html);
+    }
+
     // Strip any Content-Security-Policy meta tags returned by the remote server to prevent local overrides
     html = html.replace(/<meta[^>]*content-security-policy[^>]*>/gi, '');
 
