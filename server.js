@@ -138,8 +138,8 @@ app.get('/api/player-proxy', async (req, res) => {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
-    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}` : targetUrl;
+    const workerUrl = process.env.CLOUDFLARE_WORKER_URL || 'https://cine-stream-proxy.tayyabali77865.workers.dev/';
+    const fetchUrl = `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}`;
     const response = await fetchWithRetry(fetchUrl, { headers });
 
     if (!response.ok) {
