@@ -284,19 +284,11 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // IMPORTANT: hakunaymatata.com / bcdnxw CDN uses IP-bound signed tokens.
-    // The 'sign' parameter is tied to the CLIENT browser's IP, not the server IP.
-    // Server-side proxying will ALWAYS return 403 for these URLs.
-    // Solution: inject play_url to detect IP-bound CDNs and return the direct URL,
-    // letting the browser fetch it directly with no-referrer policy.
-    // For all other CDNs, still use Vercel Edge proxy.
+    // Route ALL video streams through /api/video-proxy which uses rotating public proxies.
+    // Public proxies have random IPs from the pool - bypasses CDN IP blocking.
     const streamProxyBase = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
-        return play_url;
-      }
-      // IP-bound CDNs: return direct URL (browser fetches with no-referrer)
-      if (play_url && (play_url.includes('hakunaymatata.com') || play_url.includes('bcdnxw'))) {
         return play_url;
       }
       return "${streamProxyBase}?streamUrl=" + encodeURIComponent(play_url); `);
