@@ -82,6 +82,9 @@ export default async function handler(req, res) {
         if (!aIsAnime && bIsAnime) return 1;
 
         const isIndian = (item, title) => {
+          if (item.isIndian === true) return true;
+          if (item.isIndian === false) return false;
+
           const cat = (item.category || '').toLowerCase();
           if (cat === 'bollywood' || cat === 'south-hindi') return true;
           
@@ -90,7 +93,8 @@ export default async function handler(req, res) {
             'tamil', 'telugu', 'kannada', 'malayalam', 'bhojpuri', 'bengali', 
             'marathi', 'indian', 'kapil sharma', 'bigg boss', 'indian idol', 
             'india\'s got talent', 'super dancer', 'pati patni aur panga', 
-            'two much with kajol', 'pitch to get rich'
+            'two much with kajol', 'pitch to get rich', 'suriya', 'kanguva',
+            'pushpa', 'singham', 'bhooth', 'bangla', 'raakh'
           ];
           if (indianKeywords.some(kw => title.includes(kw))) return true;
           

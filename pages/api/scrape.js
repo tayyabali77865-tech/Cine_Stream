@@ -68,9 +68,25 @@ async function runScraperTask() {
         for (const movie of mapped) {
           // Check if exists in MongoDB (incremental check)
           const exists = await moviesCollection.findOne({ slug: movie.slug });
+          
+          let isInd = null;
+          if (cat.slug === 'bollywood' || cat.slug === 'south-hindi') {
+            isInd = true;
+          } else if (cat.slug === 'hollywood' || cat.slug === 'anime' || cat.slug === 'k-drama' || cat.slug === 'c-drama') {
+            isInd = false;
+          }
+
+          if (isInd !== null) {
+            movie.isIndian = isInd;
+          }
+
           if (!exists) {
             await moviesCollection.insertOne(movie);
             addedCount++;
+          } else {
+            if (isInd !== null) {
+              await moviesCollection.updateOne({ slug: movie.slug }, { $set: { isIndian: isInd } });
+            }
           }
         }
       }
