@@ -48,157 +48,24 @@ export default async function handler(req, res) {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    // ── Rotating Proxy Chain ──────────────────────────────────────────────
-    // Tries each approach in order; uses first successful HTML response.
-    // All free, all within Vercel — no extra hosting or credit card needed.
-    const PROXY_CHAIN = [
-      // 1. Primary: HF Space / Cloudflare Worker (fastest when alive)
-      async () => {
-        const workerUrl = process.env.CLOUDFLARE_WORKER_URL || 'https://cine-stream-proxy.tayyabali77865.workers.dev/';
-        const fetchUrl = `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}`;
-        const r = await fetch(fetchUrl, { headers, signal: AbortSignal.timeout(5000) });
-        if (!r.ok) throw new Error(`Worker ${r.status}`);
-        return r;
-      },
-      // 2. Direct fetch from Vercel Edge to player server
-      async () => {
-        const r = await fetch(targetUrl, { headers, signal: AbortSignal.timeout(5000), redirect: 'follow' });
-        if (!r.ok) throw new Error(`Direct ${r.status}`);
-        const text = await r.text();
-        if (text.includes('Server Buzy') || text.length < 500) throw new Error('Direct: server busy or empty');
-        return new Response(text, { status: 200, headers: r.headers });
-      },
-      // 3. corsproxy.io — free public CORS proxy
-      async () => {
-        const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
-          headers: { 'User-Agent': headers['User-Agent'] },
-          signal: AbortSignal.timeout(6000)
-        });
-        if (!r.ok) throw new Error(`corsproxy.io ${r.status}`);
-        return r;
-      },
-      // 4. allorigins.win — another free CORS proxy
-      async () => {
-        const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`, {
-          signal: AbortSignal.timeout(6000)
-        });
-        if (!r.ok) throw new Error(`allorigins ${r.status}`);
-        return r;
-      },
-      // 5. codetabs.com proxy — last resort free option
-      async () => {
-        const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, {
-          signal: AbortSignal.timeout(7000)
-        });
-        if (!r.ok) throw new Error(`codetabs ${r.status}`);
-        return r;
-      },
-    ];
+    const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
+    const response = await fetchWithRetry(fetchUrl, { headers });
 
-    let response = null;
-    let lastError = '';
-    for (const tryProxy of PROXY_CHAIN) {
-      try {
-        response = await tryProxy();
-        console.log('[Proxy Rotation] Success with proxy attempt.');
-        break;
-      } catch (err) {
-        lastError = err.message;
-        console.warn('[Proxy Rotation] Attempt failed:', err.message, '— trying next...');
-      }
+    if (!response.ok) {
+      return res.status(response.status).send(`Proxy error: ${response.statusText}`);
     }
 
-    if (!response) {
-      return res.status(502).send(`All proxies failed. Last error: ${lastError}`);
-    }
-
-    // Forward Set-Cookie headers from target server to client browser
+    // Forward Set-Cookie headers from target server to client browser to propagate the session
     const setCookieHeaders = response.headers.getSetCookie
       ? response.headers.getSetCookie()
       : response.headers.get('set-cookie');
+
     if (setCookieHeaders) {
       res.setHeader('Set-Cookie', setCookieHeaders);
     }
 
     let html = await response.text();
-
-    if (html.includes('Server Buzy.Re try') || html.includes('Server Buzy')) {
-      const host = req.headers.host || 'localhost:3000';
-      const proto = req.headers['x-forwarded-proto'] || 'http';
-      const localOrigin = `${proto}://${host}`;
-      const targetBase = new URL(url).origin;
-
-      html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Loading...</title>
-        <script>
-          window.hasExtensionActive = false;
-          window.addEventListener("message", (event) => {
-            if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
-              window.hasExtensionActive = true;
-              console.log("Extension detected on Server Busy fallback, redirecting directly.");
-              window.location.href = decodeURIComponent("${encodeURIComponent(targetUrl)}");
-            }
-          });
-
-          // Check for extension
-          let checkCount = 0;
-          const checkInterval = setInterval(() => {
-            if (window.hasExtensionActive) {
-              clearInterval(checkInterval);
-              return;
-            }
-            if (checkCount > 40) {
-              clearInterval(checkInterval);
-              // Fallback: show retry alert or reload after a short delay
-              document.getElementById('status-msg').innerHTML = "Server is currently busy. Retrying automatically in 3 seconds...<br><span style='font-size:12px;color:#888;'>Tip: Install the NetMirror Extension for instant bypass.</span>";
-              setTimeout(() => {
-                window.location.reload();
-              }, 3000);
-              return;
-            }
-            window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
-            checkCount++;
-          }, 50);
-        </script>
-        <style>
-          body {
-            background: #000;
-            color: #fff;
-            font-family: sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            text-align: center;
-          }
-          .spinner {
-            border: 4px solid rgba(255,255,255,0.1);
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            border-left-color: #09d;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-            display: inline-block;
-          }
-          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        </style>
-      </head>
-      <body>
-        <div>
-          <div class="spinner"></div>
-          <div id="status-msg">Connecting to secure stream...</div>
-        </div>
-      </body>
-      </html>
-      `;
-      res.setHeader('Content-Type', 'text/html');
-      return res.status(200).send(html);
-    }
 
     // Strip any Content-Security-Policy meta tags returned by the remote server (broad, case-insensitive match)
     html = html.replace(/<meta[^>]*content-security-policy[^>]*>/gi, '');
@@ -208,69 +75,52 @@ export default async function handler(req, res) {
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const localOrigin = `${proto}://${host}`;
 
-    // Inject comprehensive extension bypass + AdBlock bypass + base tag
+    // Inject AdBlock bypass script and base tag
     const parsedUrl = new URL(url);
     const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
     const adblockBypassScript = `
       <script>
-        /* ===== CineStream: Full Extension Bypass ===== */
-
-        // 1. Immediately signal extension is active — must be BEFORE any player JS runs
-        window.hasExtensionActive = true;
-
-        // 2. Fake chrome.runtime so player extension checks pass
-        if (!window.chrome) window.chrome = {};
-        if (!window.chrome.runtime) {
-          window.chrome.runtime = {
-            sendMessage: function(msg, cb) { if (cb) cb({ status: 'ok', extension: true }); },
-            onMessage: { addListener: function() {} },
-            id: 'fakeextensionid123456789'
-          };
-        }
-
-        // 3. Spoof window.postMessage so NETMIRROR_CHECK always gets a positive reply
-        const _origPostMessage = window.postMessage.bind(window);
-        window.postMessage = function(data, origin) {
-          _origPostMessage(data, origin || '*');
-          if (data && data.type === 'NETMIRROR_CHECK') {
-            _origPostMessage({ type: 'NETMIRROR_EXTENSION_DETECTED' }, '*');
-          }
-        };
-
-        // 4. Keep replying to any future extension detection messages
-        window.addEventListener('message', (event) => {
-          if (event.data?.type === 'NETMIRROR_CHECK') {
-            window.postMessage({ type: 'NETMIRROR_EXTENSION_DETECTED' }, '*');
-          }
-        });
-
-        // 5. Adblock bypass
         window.adblock = false;
         window.adblock3 = false;
         window.canRunAds = true;
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
 
-        // 6. Patch video elements to no-referrer so IP-bound CDN tokens work directly
-        function patchVideoElements() {
-          document.querySelectorAll('video, source').forEach(el => {
-            el.setAttribute('referrerpolicy', 'no-referrer');
-            el.removeAttribute('crossorigin');
+        // Dynamic extension detection (with repeated checks to avoid race conditions)
+        window.hasExtensionActive = false;
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
+            window.hasExtensionActive = true;
+            console.log("CineStream: Extension detected, bypassing proxy.");
+          }
+        });
+        
+        let checkCount = 0;
+        const checkInterval = setInterval(() => {
+          if (window.hasExtensionActive || checkCount > 15) {
+            clearInterval(checkInterval);
+            return;
+          }
+          window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
+          checkCount++;
+        }, 50);
+
+        // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
+        document.addEventListener('DOMContentLoaded', () => {
+          const observer = new MutationObserver((mutations) => {
+            const video = document.querySelector('video');
+            if (video) {
+              video.setAttribute('referrerpolicy', 'no-referrer');
+              video.removeAttribute('crossorigin');
+              console.log('Applied no-referrer to video element successfully');
+              observer.disconnect();
+            }
           });
-        }
-        patchVideoElements();
-        const videoObserver = new MutationObserver(patchVideoElements);
-        if (document.body) {
-          videoObserver.observe(document.body, { childList: true, subtree: true });
-        } else {
-          document.addEventListener('DOMContentLoaded', () => {
-            patchVideoElements();
-            videoObserver.observe(document.body, { childList: true, subtree: true });
-          });
-        }
+          observer.observe(document.body, { childList: true, subtree: true });
+        });
       </script>
     `;
-    html = html.replace(/(<head>)/i, `$1${adblockBypassScript}<base href="${baseHref}">`);
+    html = html.replace(/<head>/i, `<head>${adblockBypassScript}<base href="${baseHref}">`);
 
     // Force extension status to true
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
@@ -284,14 +134,12 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Route ALL video streams through /api/video-proxy which uses rotating public proxies.
-    // Public proxies have random IPs from the pool - bypasses CDN IP blocking.
-    const streamProxyBase = `${localOrigin}/api/video-proxy`;
+    const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
         return play_url;
       }
-      return "${streamProxyBase}?streamUrl=" + encodeURIComponent(play_url); `);
+      return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
       <style>
