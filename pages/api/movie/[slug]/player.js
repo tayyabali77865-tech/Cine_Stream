@@ -47,7 +47,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
 
 export default async function handler(req, res) {
   try {
-    const { slug, se = 1, ep = 1 } = req.query;
+    const { slug, se = 1, ep = 1, subjectid, title, dp } = req.query;
     if (!slug) {
       return res.status(400).json({ success: false, error: 'Slug parameter is required.' });
     }
@@ -60,8 +60,19 @@ export default async function handler(req, res) {
     }
 
     const mediaType = parts[0];
-    const id = parts[1];
 
+    let videoUrl = '';
+    // If it's a TV show and we already have subjectid, title, and dp in query, we can bypass the remote fetch!
+    if (mediaType === 'tv' && subjectid && title && dp) {
+      const rawUrl = generateSeriesPlayerUrl(subjectid, title, dp, se, ep);
+      videoUrl = `/api/player-proxy?url=${encodeURIComponent(rawUrl)}`;
+      return res.status(200).json({
+        success: true,
+        videoUrl
+      });
+    }
+
+    const id = parts[1];
     const url = `${API_BASE_3}/${mediaType}/${id}`;
     const response = await fetchWithRetry(url);
     if (!response.ok) {
@@ -74,7 +85,6 @@ export default async function handler(req, res) {
     }
 
     const item = data.results[0];
-    let videoUrl = '';
     if (mediaType === 'movie' && item.embed) {
       const rawUrl = generateMoviePlayerUrl(item.embed, item.embed_en);
       videoUrl = `/api/player-proxy?url=${encodeURIComponent(rawUrl)}`;

@@ -188,6 +188,14 @@ export default async function handler(req, res) {
             height: auto !important;
             overflow: hidden !important;
         }
+        .art-icon-state {
+            width: 55px !important;
+            height: 55px !important;
+        }
+        .art-icon-state svg {
+            width: 100% !important;
+            height: 100% !important;
+        }
       </style>
     `;
     html = html.replace('</head>', `${extraStyles}</head>`);

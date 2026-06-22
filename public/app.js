@@ -358,14 +358,28 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
     window.location.hash = slug;
   }
 
-  detailsModal.classList.add('active');
-  document.body.style.overflow = 'hidden';
-  modalBody.innerHTML = `
-    <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
-      <i class="fa-solid fa-spinner fa-spin" style="font-size: 3rem; color: var(--accent); margin-bottom: 15px;"></i>
-      <p>Loading metadata and video player...</p>
-    </div>
-  `;
+  const isAlreadyOpen = detailsModal.classList.contains('active') && modalBody.querySelector('.player-container');
+  if (isAlreadyOpen) {
+    const playerContainer = modalBody.querySelector('.player-container');
+    if (playerContainer) {
+      let overlay = playerContainer.querySelector('.player-loading-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'player-loading-overlay';
+        overlay.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i>`;
+        playerContainer.appendChild(overlay);
+      }
+    }
+  } else {
+    detailsModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    modalBody.innerHTML = `
+      <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size: 3rem; color: var(--accent); margin-bottom: 15px;"></i>
+        <p>Loading metadata and video player...</p>
+      </div>
+    `;
+  }
 
   try {
     const res = await fetch(`/api/movie/${slug}`);
@@ -435,6 +449,18 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
                 <i class="fa-brands fa-youtube"></i> Watch Official Trailer
               </a>
             ` : ''}
+          </div>
+        </div>
+
+        <div class="recommended-section" id="recommended-section" style="display: none;">
+          <div class="recommended-header">
+            <h3><i class="fa-solid fa-thumbs-up"></i> Recommended for You</h3>
+            <button class="btn-view-all" id="rec-view-all-btn">View All</button>
+          </div>
+          <div class="slider-container">
+            <button class="slider-arrow prev" id="rec-prev-btn"><i class="fa-solid fa-chevron-left"></i></button>
+            <div class="slider-track" id="rec-slider-track"></div>
+            <button class="slider-arrow next" id="rec-next-btn"><i class="fa-solid fa-chevron-right"></i></button>
           </div>
         </div>
       `;
@@ -580,7 +606,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
                   btn.classList.add('active');
                   const selectedSe = parseInt(seasonSelect.value);
                   const selectedEp = btn.getAttribute('data-episode');
-                  updatePlayerSource(slug, selectedSe, selectedEp);
+                  updatePlayerSource(slug, selectedSe, selectedEp, movie.subjectid, movie.title, movie.dp);
                 });
               });
             };
@@ -599,7 +625,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
                     </button>
                   `).join('');
                   attachEpisodeClickListeners();
-                  updatePlayerSource(slug, selectedSe, eps[0]);
+                  updatePlayerSource(slug, selectedSe, eps[0], movie.subjectid, movie.title, movie.dp);
                 }
               });
             }
@@ -611,6 +637,57 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         console.error('Error rendering selectors:', err);
       }
 
+      // Fetch recommendations based on current movie category
+      const loadRecommendations = async () => {
+        try {
+          const recCat = movie.category || 'trending';
+          const recRes = await fetch(`/api/data?category=${encodeURIComponent(recCat)}`);
+          const recData = await recRes.json();
+          if (recData.success && recData.data && recData.data.length > 0) {
+            const filteredRecs = recData.data.filter(item => item.slug !== slug).slice(0, 12);
+            if (filteredRecs.length > 0) {
+              const recSection = document.getElementById('recommended-section');
+              const recTrack = document.getElementById('rec-slider-track');
+              recTrack.innerHTML = '';
+              
+              filteredRecs.forEach(item => {
+                const card = createMovieCard(item);
+                recTrack.appendChild(card);
+              });
+              
+              recSection.style.display = 'block';
+
+              // Attach slider arrow event listeners
+              document.getElementById('rec-prev-btn').addEventListener('click', () => {
+                recTrack.scrollBy({ left: -300, behavior: 'smooth' });
+              });
+              document.getElementById('rec-next-btn').addEventListener('click', () => {
+                recTrack.scrollBy({ left: 300, behavior: 'smooth' });
+              });
+
+              // Attach View All listener
+              document.getElementById('rec-view-all-btn').addEventListener('click', () => {
+                closeModal(true);
+                // Reset categories sidebar & load category
+                const categories = categoryList.querySelectorAll('li');
+                categories.forEach(li => {
+                  li.classList.remove('active');
+                  const catLink = li.querySelector('a');
+                  if (catLink && catLink.innerText.toLowerCase() === recCat.replace('-', ' ').toLowerCase()) {
+                    li.classList.add('active');
+                  }
+                });
+                resetCategoryFilter(recCat, recCat.charAt(0).toUpperCase() + recCat.slice(1).replace('-', ' '));
+                loadMovies();
+              });
+            }
+          }
+        } catch (recErr) {
+          console.error('Error loading recommendations:', recErr);
+        }
+      };
+      loadRecommendations();
+
     } else {
       modalBody.innerHTML = `<div style="color: var(--accent); padding: 40px; text-align: center;">Failed to load details.</div>`;
     }
@@ -621,14 +698,18 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
 }
 
 // Update signed player iframe source
-async function updatePlayerSource(slug, season, episode) {
+async function updatePlayerSource(slug, season, episode, subjectid, title, dp) {
   const iframe = document.getElementById('player-iframe');
   if (!iframe) return;
 
   iframe.style.opacity = '0.5';
 
   try {
-    const res = await fetch(`/api/movie/${slug}/player?se=${season}&ep=${episode}`);
+    let url = `/api/movie/${slug}/player?se=${season}&ep=${episode}`;
+    if (subjectid && title && dp) {
+      url += `&subjectid=${encodeURIComponent(subjectid)}&title=${encodeURIComponent(title)}&dp=${encodeURIComponent(dp)}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
     if (data.success && data.videoUrl) {
       iframe.src = data.videoUrl + "&_cb=" + Date.now();
@@ -642,6 +723,10 @@ async function updatePlayerSource(slug, season, episode) {
 
 // Close Modal
 function closeModal(updateHash = true) {
+  const iframe = document.getElementById('player-iframe');
+  if (iframe) {
+    iframe.src = 'about:blank';
+  }
   detailsModal.classList.remove('active');
   document.body.style.overflow = '';
   modalBody.innerHTML = '';

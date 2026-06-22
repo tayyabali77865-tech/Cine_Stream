@@ -45,6 +45,9 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
   }
 }
 
+const metadataCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 export default async function handler(req, res) {
   try {
     const { slug } = req.query;
@@ -62,18 +65,29 @@ export default async function handler(req, res) {
     const mediaType = parts[0];
     const id = parts[1];
 
-    const url = `${API_BASE_3}/${mediaType}/${id}`;
-    const response = await fetchWithRetry(url);
-    if (!response.ok) {
-      throw new Error(`NetMirror details failed: ${response.status}`);
+    let item;
+    const cached = metadataCache.get(slug);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      item = cached.data;
+    } else {
+      const url = `${API_BASE_3}/${mediaType}/${id}`;
+      const response = await fetchWithRetry(url);
+      if (!response.ok) {
+        throw new Error(`NetMirror details failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.results || data.results.length === 0) {
+        return res.status(404).json({ success: false, error: 'Movie/Series not found' });
+      }
+
+      item = data.results[0];
+      metadataCache.set(slug, {
+        data: item,
+        timestamp: Date.now()
+      });
     }
 
-    const data = await response.json();
-    if (!data.results || data.results.length === 0) {
-      return res.status(404).json({ success: false, error: 'Movie/Series not found' });
-    }
-
-    const item = data.results[0];
     let poster = item.backdrop_path || '';
     if (poster) {
       poster = poster.replace('pbcdnw', 'pacdn');
