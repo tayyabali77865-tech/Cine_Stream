@@ -1,6 +1,6 @@
 // State Management
 let currentPage = 1;
-let currentCategory = 'trending'; // Set default category to trending
+let currentCategory = 'hollywood'; // Set default category to hollywood
 let currentQuery = '';
 let isLoading = false;
 let loadedMovies = [];
@@ -442,7 +442,10 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
               <span class="meta-badge"><i class="fa-solid fa-earth-americas"></i> ${movie.country || 'N/A'}</span>
             </div>
             <h4>Plot / Details</h4>
-            <p class="details-desc">${movie.description || 'No plot details parsed for this title.'}</p>
+            <div class="details-desc-container">
+              <p class="details-desc">${movie.description || 'No plot details parsed for this title.'}</p>
+              <button class="btn-read-more" id="desc-read-more-btn" style="display: none;">View More</button>
+            </div>
             
             ${movie.trailer ? `
               <a href="${movie.trailer}" target="_blank" class="btn-trailer">
@@ -640,7 +643,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
       // Fetch recommendations based on current movie category
       const loadRecommendations = async () => {
         try {
-          const recCat = movie.category || 'trending';
+          const recCat = movie.category || 'hollywood';
           const recRes = await fetch(`/api/data?category=${encodeURIComponent(recCat)}`);
           const recData = await recRes.json();
           if (recData.success && recData.data && recData.data.length > 0) {
@@ -687,6 +690,24 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         }
       };
       loadRecommendations();
+
+      // Truncate description on mobile view if it's too long
+      const descContainer = modalBody.querySelector('.details-desc-container');
+      const descText = modalBody.querySelector('.details-desc');
+      const readMoreBtn = modalBody.querySelector('#desc-read-more-btn');
+      if (descContainer && descText && readMoreBtn && descText.textContent.length > 180) {
+        descContainer.classList.add('truncated');
+        readMoreBtn.style.display = 'inline-block';
+        readMoreBtn.addEventListener('click', () => {
+          if (descContainer.classList.contains('truncated')) {
+            descContainer.classList.remove('truncated');
+            readMoreBtn.innerText = 'View Less';
+          } else {
+            descContainer.classList.add('truncated');
+            readMoreBtn.innerText = 'View More';
+          }
+        });
+      }
 
     } else {
       modalBody.innerHTML = `<div style="color: var(--accent); padding: 40px; text-align: center;">Failed to load details.</div>`;
@@ -738,18 +759,18 @@ function closeModal(updateHash = true) {
 // Reset / Clear states
 function resetState() {
   currentPage = 1;
-  currentCategory = 'trending';
+  currentCategory = 'hollywood';
   currentQuery = '';
   searchInput.value = '';
   filterBanner.style.display = 'none';
   loadedMovies = [];
   displayedCount = 0;
 
-  // Reset category sidebar active states to trending
+  // Reset category sidebar active states to hollywood
   const categories = categoryList.querySelectorAll('li');
   categories.forEach(li => {
     li.classList.remove('active');
-    if (li.innerHTML.includes('Trending')) {
+    if (li.innerHTML.toLowerCase().includes('hollywood')) {
       li.classList.add('active');
     }
   });

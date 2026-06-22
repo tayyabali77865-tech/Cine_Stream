@@ -28,7 +28,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
   }
 }
 
-function mapMovieResults(results) {
+function mapMovieResults(results, categorySlug) {
   if (!results || !Array.isArray(results)) return [];
   return results.map(item => {
     let poster = item.backdrop_path || '';
@@ -39,7 +39,9 @@ function mapMovieResults(results) {
       poster: poster,
       media_type: item.media_type || 'movie',
       release_date: item.release_date || '',
-      vote_average: item.vote_average || '0'
+      vote_average: item.vote_average || '0',
+      category: categorySlug || 'trending',
+      scrapedAt: new Date()
     };
   });
 }
@@ -227,7 +229,7 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    const mapped = mapMovieResults(data.results);
+    const mapped = mapMovieResults(data.results, category || 'trending');
 
     return res.status(200).json({
       success: true,
