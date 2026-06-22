@@ -366,6 +366,26 @@ app.get('/api/player-proxy', async (req, res) => {
   }
 });
 
+// CDN hostname → trusted Referer/Origin map
+const CDN_REFERER_MAP = [
+  { pattern: 'hakunaymatata.com', referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
+  { pattern: 'megacloud',         referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
+  { pattern: 'rapid-cloud',       referer: 'https://rapid-cloud.co/', origin: 'https://rapid-cloud.co' },
+  { pattern: 'netmirror',         referer: 'https://netmirror.global/', origin: 'https://netmirror.global' },
+];
+
+function getCdnReferer(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    for (const entry of CDN_REFERER_MAP) {
+      if (hostname.includes(entry.pattern)) {
+        return { referer: entry.referer, origin: entry.origin };
+      }
+    }
+  } catch {}
+  return { referer: 'https://fmoviesunblocked.net/', origin: null };
+}
+
 // Reverse Proxy for Video streams to handle range requests and referer blocks
 app.get('/api/video-proxy', async (req, res) => {
   try {
@@ -385,37 +405,45 @@ app.get('/api/video-proxy', async (req, res) => {
     const range = req.headers.range || 'bytes=0-';
 
     while (redirectsFollowed < maxRedirects) {
-      const urlObj = new URL(currentUrl);
+      // Pick correct Referer/Origin from CDN map
+      const { referer: cdnReferer, origin: cdnOrigin } = getCdnReferer(currentUrl);
       const headers = {
-        'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Range': range,
+        'Referer': cdnReferer,
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'identity',
+        'Sec-Fetch-Dest': 'video',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       };
+      if (cdnOrigin) headers['Origin'] = cdnOrigin;
 
-      // Dynamically derive Referer and Origin from the stream source domain
-      headers['Referer'] = urlObj.origin + '/';
-      headers['Origin'] = urlObj.origin;
-
-      console.log(`[Video Proxy Log] Hop ${redirectsFollowed + 1}: requesting ${currentUrl}`);
+      console.log(`[Video Proxy Log] Hop ${redirectsFollowed + 1}: requesting ${currentUrl} with Referer: ${cdnReferer}`);
 
       response = await fetch(currentUrl, {
-        method: req.method || 'GET',
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
         redirect: 'manual'
       });
 
       console.log(`[Video Proxy Log] Hop ${redirectsFollowed + 1} status: ${response.status} ${response.statusText}`);
 
-      // Dynamic fallback for hotlink-protected CDNs that reject derived referers
+      // If still 403, retry with self-origin as last resort
       if (response.status === 403) {
-        console.log(`[Video Proxy Log] 403 Forbidden on derived referer. Retrying with fallback fmovies referer.`);
-        headers['Referer'] = 'https://fmoviesunblocked.net/';
-        delete headers['Origin'];
+        console.log(`[Video Proxy Log] 403 on CDN referer. Retrying with self-origin.`);
+        const selfOrigin = new URL(currentUrl).origin;
+        headers['Referer'] = selfOrigin + '/';
+        headers['Origin'] = selfOrigin;
         response = await fetch(currentUrl, {
-          method: req.method || 'GET',
+          method: req.method === 'HEAD' ? 'HEAD' : 'GET',
           headers,
           redirect: 'manual'
         });
-        console.log(`[Video Proxy Log] Retry status: ${response.status} ${response.statusText}`);
+        console.log(`[Video Proxy Log] Self-origin retry status: ${response.status} ${response.statusText}`);
       }
 
       redirectChain.push({ url: currentUrl, status: response.status });
