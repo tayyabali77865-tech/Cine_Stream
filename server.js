@@ -258,7 +258,7 @@ app.get('/api/player-proxy', async (req, res) => {
         .art-video {
             flex: 1 !important;
             min-height: 0 !important;
-            height: 60% !important;
+            height: 100% !important;
         }
         .art-bottom {
             padding-bottom: 0 !important;
