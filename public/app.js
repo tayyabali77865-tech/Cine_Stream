@@ -5,6 +5,7 @@ let currentQuery = '';
 let isLoading = false;
 let loadedMovies = [];
 let displayedCount = 0;
+let isLanguageSwitching = false;
 const ITEMS_PER_PAGE = 24;
 
 // DOM Elements
@@ -91,6 +92,7 @@ function setupEventListeners() {
 
 // Check URL Hash for Route
 function checkHashRoute() {
+  if (isLanguageSwitching) return;
   const hash = window.location.hash;
   if (hash && hash.startsWith('#')) {
     const slug = hash.substring(1);
@@ -383,12 +385,13 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
     modalBody.innerHTML = `
       <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
         <i class="fa-solid fa-spinner fa-spin" style="font-size: 3rem; color: var(--accent); margin-bottom: 15px;"></i>
-        <p>Loading metadata and video player...</p>
+        <p>Loading...</p>
       </div>
     `;
   }
 
   if (isLanguageSwitch && isAlreadyOpen) {
+    isLanguageSwitching = true;
     try {
       const res = await fetch(`/api/movie/${slug}`);
       const result = await res.json();
@@ -441,6 +444,8 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
       }
     } catch (err) {
       console.error('Error switching language:', err);
+    } finally {
+      isLanguageSwitching = false;
     }
     return;
   }
