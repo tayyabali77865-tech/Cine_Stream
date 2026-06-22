@@ -164,7 +164,7 @@ app.get('/api/player-proxy', async (req, res) => {
             if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
               window.hasExtensionActive = true;
               console.log("Extension detected on Server Busy fallback, redirecting directly.");
-              window.location.href = "${url}";
+              window.location.href = decodeURIComponent("${encodeURIComponent(url)}");
             }
           });
 
@@ -175,7 +175,7 @@ app.get('/api/player-proxy', async (req, res) => {
               clearInterval(checkInterval);
               return;
             }
-            if (checkCount > 25) {
+            if (checkCount > 40) {
               clearInterval(checkInterval);
               // Fallback: show retry alert or reload after a short delay
               document.getElementById('status-msg').innerHTML = "Server is currently busy. Retrying automatically in 3 seconds...<br><span style='font-size:12px;color:#888;'>Tip: Install the NetMirror Extension for instant bypass.</span>";
@@ -186,7 +186,7 @@ app.get('/api/player-proxy', async (req, res) => {
             }
             window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
             checkCount++;
-          }, 60);
+          }, 50);
         </script>
         <style>
           body {
