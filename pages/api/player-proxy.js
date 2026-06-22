@@ -153,49 +153,58 @@ export default async function handler(req, res) {
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const localOrigin = `${proto}://${host}`;
 
-    // Inject AdBlock bypass script and base tag
+    // Inject comprehensive extension bypass + AdBlock bypass + base tag
     const parsedUrl = new URL(url);
     const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
     const adblockBypassScript = `
       <script>
+        /* ===== CineStream: Full Extension Bypass ===== */
+
+        // 1. Immediately signal extension is active — must be BEFORE any player JS runs
+        window.hasExtensionActive = true;
+
+        // 2. Fake chrome.runtime so player extension checks pass
+        if (!window.chrome) window.chrome = {};
+        if (!window.chrome.runtime) {
+          window.chrome.runtime = {
+            sendMessage: function(msg, cb) { if (cb) cb({ status: 'ok', extension: true }); },
+            onMessage: { addListener: function() {} },
+            id: 'fakeextensionid123456789'
+          };
+        }
+
+        // 3. Spoof window.postMessage so NETMIRROR_CHECK always gets a positive reply
+        const _origPostMessage = window.postMessage.bind(window);
+        window.postMessage = function(data, origin) {
+          _origPostMessage(data, origin || '*');
+          if (data && data.type === 'NETMIRROR_CHECK') {
+            _origPostMessage({ type: 'NETMIRROR_EXTENSION_DETECTED' }, '*');
+          }
+        };
+
+        // 4. Keep replying to any future extension detection messages
+        window.addEventListener('message', (event) => {
+          if (event.data?.type === 'NETMIRROR_CHECK') {
+            window.postMessage({ type: 'NETMIRROR_EXTENSION_DETECTED' }, '*');
+          }
+        });
+
+        // 5. Adblock bypass
         window.adblock = false;
         window.adblock3 = false;
         window.canRunAds = true;
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
 
-        // Dynamic extension detection (with repeated checks to avoid race conditions)
-        window.hasExtensionActive = false;
-        window.addEventListener("message", (event) => {
-          if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
-            window.hasExtensionActive = true;
-            console.log("CineStream: Extension detected, bypassing proxy.");
-          }
-        });
-        
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-          if (window.hasExtensionActive || checkCount > 15) {
-            clearInterval(checkInterval);
-            return;
-          }
-          window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
-          checkCount++;
-        }, 50);
-
-        // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
+        // 6. Patch video elements to no-referrer so IP-bound CDN tokens work directly
         function patchVideoElements() {
           document.querySelectorAll('video, source').forEach(el => {
             el.setAttribute('referrerpolicy', 'no-referrer');
             el.removeAttribute('crossorigin');
           });
         }
-        // Patch immediately if DOM already has video elements
         patchVideoElements();
-        // Also watch for dynamically added video elements
-        const videoObserver = new MutationObserver(() => {
-          patchVideoElements();
-        });
+        const videoObserver = new MutationObserver(patchVideoElements);
         if (document.body) {
           videoObserver.observe(document.body, { childList: true, subtree: true });
         } else {
@@ -206,7 +215,7 @@ export default async function handler(req, res) {
         }
       </script>
     `;
-    html = html.replace(/<head>/i, `<head>${adblockBypassScript}<base href="${baseHref}">`);
+    html = html.replace(/(<head>)/i, `$1${adblockBypassScript}<base href="${baseHref}">`);
 
     // Force extension status to true
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
