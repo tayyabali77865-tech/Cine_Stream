@@ -84,7 +84,7 @@ export default async function handler(req, res) {
             if (event.data?.type === "NETMIRROR_EXTENSION_DETECTED") {
               window.hasExtensionActive = true;
               console.log("Extension detected on Server Busy fallback, redirecting directly.");
-              window.location.href = decodeURIComponent("${encodeURIComponent(url)}");
+              window.location.href = decodeURIComponent("${encodeURIComponent(targetUrl)}");
             }
           });
 
