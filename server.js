@@ -139,7 +139,7 @@ app.get('/api/player-proxy', async (req, res) => {
     }
 
     const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
-    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
+    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}` : targetUrl;
     const response = await fetchWithRetry(fetchUrl, { headers });
 
     if (!response.ok) {
