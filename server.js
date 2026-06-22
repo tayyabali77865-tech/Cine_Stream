@@ -217,9 +217,6 @@ app.get('/api/player-proxy', async (req, res) => {
     // Fix resolution switching by making play_url return the absolute proxy URL
     const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
-      if (window.hasExtensionActive) {
-        return play_url;
-      }
       return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
