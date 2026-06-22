@@ -360,7 +360,7 @@ function getEpisodesArray(ep) {
 }
 
 // Open Details Modal
-async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) {
+async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, isLanguageSwitch = false) {
   if (updateHash) {
     window.location.hash = slug;
   }
@@ -386,6 +386,63 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         <p>Loading metadata and video player...</p>
       </div>
     `;
+  }
+
+  if (isLanguageSwitch && isAlreadyOpen) {
+    try {
+      const res = await fetch(`/api/movie/${slug}`);
+      const result = await res.json();
+      if (result.success && result.data) {
+        const movie = result.data;
+        const playerContainer = modalBody.querySelector('.player-container');
+        if (playerContainer) {
+          if (movie.videoUrl) {
+            const fallback = playerContainer.querySelector('.no-player-fallback');
+            if (fallback) fallback.remove();
+            let iframe = playerContainer.querySelector('#player-iframe');
+            if (!iframe) {
+              playerContainer.innerHTML = `
+                <iframe 
+                  id="player-iframe"
+                  src="${movie.videoUrl}&_cb=${Date.now()}" 
+                  width="100%" 
+                  height="100%" 
+                  frameborder="0" 
+                  allowfullscreen="allowfullscreen"
+                  sandbox="allow-scripts allow-same-origin allow-presentation"
+                  scrolling="no">
+                </iframe>
+              `;
+            } else {
+              iframe.src = movie.videoUrl + "&_cb=" + Date.now();
+            }
+          } else {
+            playerContainer.innerHTML = `
+              <div class="no-player-fallback">
+                <i class="fa-regular fa-face-frown"></i>
+                <p>No video player embed available for this title</p>
+              </div>
+            `;
+          }
+          const overlay = playerContainer.querySelector('.player-loading-overlay');
+          if (overlay) overlay.remove();
+        }
+
+        const titleEl = modalBody.querySelector('.details-title');
+        if (titleEl) titleEl.textContent = movie.title;
+
+        const descEl = modalBody.querySelector('.details-desc');
+        if (descEl) descEl.textContent = movie.description || 'No plot details parsed for this title.';
+
+        const dubSelect = document.getElementById('dub-select');
+        if (dubSelect) {
+          dubSelect.value = slug;
+        }
+      }
+    } catch (err) {
+      console.error('Error switching language:', err);
+    }
+    return;
   }
 
   try {
@@ -505,6 +562,8 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         let dubsSelectHTML = '';
         if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
           const dubOptions = [];
+          const seenLabels = new Set();
+
           relatedData.data.forEach(item => {
             let label = '';
             const match = item.title.match(/\[([^\]]+)\]/);
@@ -519,9 +578,26 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
               return;
             }
 
-            const itemSlug = item.slug;
-            const isSelected = itemSlug === slug ? 'selected' : '';
-            dubOptions.push(`<option value="${itemSlug}" ${isSelected}>${label}</option>`);
+            const stdLabel = label.trim().toLowerCase();
+
+            // Deduplicate to avoid repeating "Hindi Dubbed"
+            if (seenLabels.has(stdLabel)) {
+              const existingIdx = dubOptions.findIndex(opt => opt.stdLabel === stdLabel);
+              if (item.slug === slug && existingIdx !== -1) {
+                dubOptions[existingIdx] = {
+                  html: `<option value="${item.slug}" selected>${label}</option>`,
+                  stdLabel
+                };
+              }
+              return;
+            }
+
+            seenLabels.add(stdLabel);
+            const isSelected = item.slug === slug ? 'selected' : '';
+            dubOptions.push({
+              html: `<option value="${item.slug}" ${isSelected}>${label}</option>`,
+              stdLabel
+            });
           });
 
           if (dubOptions.length > 0) {
@@ -538,7 +614,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
                 <label for="dub-select"><i class="fa-solid fa-language"></i> Dubbed Version:</label>
                 <select id="dub-select" class="detail-select">
                   ${!currentInDubs ? '<option value="" disabled selected>Select Language</option>' : ''}
-                  ${dubOptions.join('')}
+                  ${dubOptions.map(opt => opt.html).join('')}
                 </select>
               </div>
             `;
@@ -601,7 +677,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
             const dubSelect = document.getElementById('dub-select');
             if (dubSelect) {
               dubSelect.addEventListener('change', () => {
-                openMovieDetail(dubSelect.value, true, false);
+                openMovieDetail(dubSelect.value, true, false, true);
               });
             }
           }
