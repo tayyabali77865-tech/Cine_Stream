@@ -94,9 +94,13 @@ export default async function handler(req, res) {
             'marathi', 'indian', 'kapil sharma', 'bigg boss', 'indian idol', 
             'india\'s got talent', 'super dancer', 'pati patni aur panga', 
             'two much with kajol', 'pitch to get rich', 'suriya', 'kanguva',
-            'pushpa', 'singham', 'bhooth', 'bangla', 'raakh'
+            'pushpa', 'singham', 'bhooth', 'bangla', 'raakh', 'latent', 'india'
           ];
           if (indianKeywords.some(kw => title.includes(kw))) return true;
+          
+          if (!['anime', 'k-drama', 'c-drama', 'hollywood'].includes(cat) && (title.includes('hindi') || title.includes('[hindi]'))) {
+            return true;
+          }
           
           if (cat === 'reality-tv' && title.includes('[hindi]')) return true;
           

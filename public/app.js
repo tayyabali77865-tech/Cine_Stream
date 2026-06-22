@@ -448,14 +448,18 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true) 
         if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
           // If auto-switch is enabled and Hindi dubbed version is available, switch to it!
           if (allowAutoSwitch) {
-            const hindiDubbed = relatedData.data.find(item => {
-              const titleLower = item.title.toLowerCase();
-              return titleLower.includes('[hindi]') || titleLower.includes('hindi dubbed');
-            });
-            if (hindiDubbed && hindiDubbed.slug !== slug) {
-              console.log('Auto-switching to Hindi Dubbed version:', hindiDubbed.title);
-              openMovieDetail(hindiDubbed.slug, updateHash, false);
-              return;
+            const currentTitleLower = movie.title.toLowerCase();
+            const currentIsHindi = currentTitleLower.includes('[hindi]') || currentTitleLower.includes('hindi dubbed') || currentTitleLower.includes('hindi');
+            if (!currentIsHindi) {
+              const hindiDubbed = relatedData.data.find(item => {
+                const titleLower = item.title.toLowerCase();
+                return titleLower.includes('[hindi]') || titleLower.includes('hindi dubbed');
+              });
+              if (hindiDubbed && hindiDubbed.slug !== slug) {
+                console.log('Auto-switching to Hindi Dubbed version:', hindiDubbed.title);
+                openMovieDetail(hindiDubbed.slug, updateHash, false);
+                return;
+              }
             }
           }
         }
