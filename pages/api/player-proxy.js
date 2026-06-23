@@ -48,7 +48,10 @@ export default async function handler(req, res) {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    let workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    if (workerUrl && !workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
+      workerUrl = `https://${workerUrl}`;
+    }
     const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
     const response = await fetchWithRetry(fetchUrl, { headers });
 
@@ -134,7 +137,10 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
+    let proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
+    if (proxyUrl && !proxyUrl.startsWith('http://') && !proxyUrl.startsWith('https://') && !proxyUrl.startsWith('/')) {
+      proxyUrl = `https://${proxyUrl}`;
+    }
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
         return play_url;
