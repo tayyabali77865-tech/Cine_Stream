@@ -4,16 +4,19 @@ export const config = {
 
 const ALLOWED_CDN_DOMAINS = [
   'pacdn.aoneroom.com',
+  'pbcdnw.aoneroom.com',
   'spedostream2.shop',
   'imb.hair',
   'netmirror.global',
   'netmirror.hair',
   'fmoviesunblocked.net',
   'via.placeholder.com',
+  'image.tmdb.org',
   'hakunaymatata.com',
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
+  'media-amazon.com'
 ];
 
 function isPrivateIp(ip) {

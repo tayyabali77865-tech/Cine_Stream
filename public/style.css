@@ -98,6 +98,7 @@ a {
 .logo-icon {
   background: var(--accent-gradient);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: pulse 2s infinite;
 }
@@ -411,6 +412,7 @@ a {
   color: #ffffff !important;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.25;
@@ -1259,6 +1261,7 @@ a {
   .details-desc-container.truncated .details-desc {
     display: -webkit-box;
     -webkit-line-clamp: 4;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -1299,10 +1302,6 @@ a {
   to   { opacity: 1; }
 }
 
-.movies-grid {
-  /* content-visibility:auto removed — interferes with native lazy loading */
-}
-
 .movie-card {
   will-change: transform, box-shadow;
 }
@@ -1319,4 +1318,4 @@ a {
   align-items: center;
   z-index: 15;
   pointer-events: none;
-}
+}
