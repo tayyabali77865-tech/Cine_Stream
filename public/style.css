@@ -1289,21 +1289,18 @@ a {
   display: none !important;
 }
 
-.img-loading {
-  opacity: 0;
-  filter: blur(10px);
-  transition: opacity 0.3s ease-out, filter 0.3s ease-out;
+/* img-loaded: smooth fade-in when image fully loads */
+.img-loaded {
+  animation: imgFadeIn 0.3s ease-out;
 }
 
-.img-loaded {
-  opacity: 1;
-  filter: blur(0);
-  transition: opacity 0.3s ease-out, filter 0.3s ease-out;
+@keyframes imgFadeIn {
+  from { opacity: 0.4; }
+  to   { opacity: 1; }
 }
 
 .movies-grid {
-  content-visibility: auto;
-  contain-intrinsic-size: 1000px;
+  /* content-visibility:auto removed — interferes with native lazy loading */
 }
 
 .movie-card {

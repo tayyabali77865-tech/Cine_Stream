@@ -80,110 +80,53 @@ class ClientCache {
 }
 const apiCache = new ClientCache();
 
-// Shared IntersectionObserver for lazy loading images
-const lazyImageObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const img = entry.target;
-      const originalUrl = img.getAttribute('data-origin-src');
-      if (originalUrl) {
-        triggerImageLoad(img, originalUrl);
-      }
-      lazyImageObserver.unobserve(img);
-    }
-  });
-}, { rootMargin: '250px 0px' });
-
-function triggerImageLoad(imgElement, originalUrl) {
-  let proxiedUrl = originalUrl;
-  if (originalUrl.startsWith('http')) {
-    proxiedUrl = `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-  }
-
-  const controller = new AbortController();
-  let triedDirect = false;
-  let isDone = false;
-
-  let timeoutDuration = 1200;
-  if (navigator.connection) {
-    const type = navigator.connection.effectiveType;
-    if (type === '3g' || type === '2g') timeoutDuration = 2200;
-    else if (type === '4g') timeoutDuration = 1200;
-  }
-
-  const timeoutId = setTimeout(() => {
-    if (!isDone) {
-      console.warn('Proxy slow, aborting and falling back to direct CDN:', originalUrl);
-      controller.abort();
-      loadDirectCDN();
-    }
-  }, timeoutDuration);
-
-  // Fetch as blob to prevent double fetch race and control abort
-  fetch(proxiedUrl, { signal: controller.signal })
-    .then(res => {
-      if (!res.ok) throw new Error();
-      return res.blob();
-    })
-    .then(blob => {
-      if (isDone) return;
-      isDone = true;
-      clearTimeout(timeoutId);
-      const blobUrl = URL.createObjectURL(blob);
-      imgElement.src = blobUrl;
-      imgElement.onload = () => {
-        URL.revokeObjectURL(blobUrl);
-        imgElement.classList.remove('img-loading');
-        imgElement.classList.add('img-loaded');
-      };
-    })
-    .catch(() => {
-      if (isDone) return;
-      clearTimeout(timeoutId);
-      loadDirectCDN();
-    });
-
-  function loadDirectCDN() {
-    isDone = true;
-    imgElement.src = originalUrl;
-    
-    imgElement.onload = () => {
-      imgElement.classList.remove('img-loading');
-      imgElement.classList.add('img-loaded');
-    };
-
-    imgElement.onerror = () => {
-      if (triedDirect) {
-        imgElement.onerror = null;
-        imgElement.classList.remove('img-loading');
-        imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
-        return;
-      }
-      triedDirect = true;
-      imgElement.src = originalUrl;
-    };
-  }
-}
-
-function loadLazyImage(imgElement, originalUrl) {
-  if (!originalUrl) {
-    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
-    return;
-  }
-  imgElement.classList.add('img-loading');
-  imgElement.setAttribute('data-origin-src', originalUrl);
-  lazyImageObserver.observe(imgElement);
-}
-
 // Network-aware prefetch helper
 function prefetchUrl(url) {
   const connection = navigator.connection;
   const canPrefetch = !connection || (!connection.saveData && !['slow-2g', '2g'].includes(connection.effectiveType));
-  
   if (canPrefetch) {
-    // Background fetch to populate cache
     apiCache.fetch(url).catch(() => {});
   }
+}
+
+// Fast image loader: directly set img.src to proxy URL
+// Above-fold images: eager loading (no lazy)
+// Below-fold images: native browser loading=lazy
+function loadFastImage(imgElement, originalUrl, isAboveFold) {
+  if (!originalUrl) {
+    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+    return;
+  }
+
+  const proxiedUrl = originalUrl.startsWith('http')
+    ? `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+    : originalUrl;
+
+  // Native browser lazy loading: fast & zero JS overhead
+  if (isAboveFold) {
+    imgElement.loading = 'eager';
+    imgElement.fetchPriority = 'high';
+  } else {
+    imgElement.loading = 'lazy';
+  }
+
+  let triedDirect = false;
+  imgElement.onerror = () => {
+    if (triedDirect) {
+      imgElement.onerror = null;
+      imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+      return;
+    }
+    triedDirect = true;
+    imgElement.src = originalUrl; // fallback to direct CDN
+  };
+
+  imgElement.onload = () => {
+    imgElement.classList.add('img-loaded');
+  };
+
+  // Set src directly — browser handles caching, parallel loading, lazy
+  imgElement.src = proxiedUrl;
 }
 
 // Card Recycler Pool
@@ -214,10 +157,10 @@ class CardRecyclerPool {
     return div;
   }
 
-  acquire(movie) {
+  acquire(movie, isAboveFold = false) {
     const card = this.pool.pop() || this.createNewCardNode();
     card.classList.remove('card-hidden');
-    this.populate(card, movie);
+    this.populate(card, movie, isAboveFold);
     return card;
   }
 
@@ -225,19 +168,20 @@ class CardRecyclerPool {
     card.onclick = null;
     const img = card.querySelector('.card-poster');
     if (img) {
-      lazyImageObserver.unobserve(img);
       img.removeAttribute('data-origin-src');
-      img.src = 'data:image/svg+xml;charset=utf-8,%3Csvg xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width%3D%27200%27 height%3D%27300%27 viewBox%3D%270 0 200 300%27%2F%3E';
+      img.loading = 'lazy';
+      img.fetchPriority = 'auto';
+      img.src = '';
       img.onload = null;
       img.onerror = null;
-      img.classList.remove('img-loaded', 'img-loading');
+      img.classList.remove('img-loaded');
     }
     card.classList.add('card-hidden');
-    card.remove(); // Safely remove from DOM to prevent memory leak accumulation
+    card.remove();
     this.pool.push(card);
   }
 
-  populate(card, movie) {
+  populate(card, movie, isAboveFold = false) {
     const img = card.querySelector('.card-poster');
     const badge = card.querySelector('.card-badge');
     const title = card.querySelector('.card-title');
@@ -260,7 +204,7 @@ class CardRecyclerPool {
     else if (titleLower.includes('[telugu]')) audioBadge = 'Telugu Dubbed';
 
     badge.textContent = audioBadge;
-    loadLazyImage(img, movie.poster);
+    loadFastImage(img, movie.poster, isAboveFold);
     
     card.onclick = () => {
       window.location.hash = movie.slug;
@@ -407,12 +351,14 @@ function setActiveCategoryLi(activeLi) {
 }
 
 // Render next batch of items (up to ITEMS_PER_PAGE) using DocumentFragment (Zero Layout Shift)
+const ABOVE_FOLD_COUNT = 8; // First 8 posters: eager loading, high priority
 function renderNextBatch() {
   const nextBatch = loadedMovies.slice(displayedCount, displayedCount + ITEMS_PER_PAGE);
   const fragment = document.createDocumentFragment();
 
-  nextBatch.forEach((movie) => {
-    const card = cardPool.acquire(movie);
+  nextBatch.forEach((movie, i) => {
+    const isAboveFold = (displayedCount + i) < ABOVE_FOLD_COUNT;
+    const card = cardPool.acquire(movie, isAboveFold);
     fragment.appendChild(card);
   });
 
