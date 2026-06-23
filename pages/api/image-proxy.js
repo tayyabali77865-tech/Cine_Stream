@@ -16,21 +16,46 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream2.com',
 ];
 
+function isPrivateIp(ip) {
+  if (
+    ip === '127.0.0.1' ||
+    ip === 'localhost' ||
+    ip === '::1' ||
+    ip === '[::1]' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('169.254.') ||
+    ip.startsWith('127.')
+  ) {
+    return true;
+  }
+  if (ip.startsWith('172.')) {
+    const parts = ip.split('.');
+    if (parts.length >= 2) {
+      const secondOctet = parseInt(parts[1], 10);
+      if (secondOctet >= 16 && secondOctet <= 31) {
+        return true;
+      }
+    }
+  }
+  if (ip.startsWith('192.168.')) {
+    return true;
+  }
+  return false;
+}
+
 function isValidProxyUrl(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
-    const hostname = parsed.hostname;
-    // SSRF Prevention: block local/private IPs and loopbacks
+    const hostname = parsed.hostname.toLowerCase();
+    
     if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.') ||
-      hostname.startsWith('169.254.')
+      isPrivateIp(hostname) ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal')
     ) {
       return false;
     }
+    
     // Allowlist check
     return ALLOWED_CDN_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
   } catch (e) {
@@ -50,11 +75,34 @@ export default async function handler(req) {
       return new Response('Forbidden: Target URL is not allowed', { status: 403 });
     }
 
-    const response = await fetch(imageUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    let currentUrl = imageUrl;
+    let redirectsFollowed = 0;
+    const maxRedirects = 3;
+    let response;
+
+    while (redirectsFollowed < maxRedirects) {
+      response = await fetch(currentUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        redirect: 'manual',
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) break;
+        
+        const nextUrl = new URL(location, currentUrl).toString();
+        if (!isValidProxyUrl(nextUrl)) {
+          return new Response('Forbidden: Redirect target is not allowed', { status: 403 });
+        }
+        
+        currentUrl = nextUrl;
+        redirectsFollowed++;
+      } else {
+        break;
       }
-    });
+    }
 
     if (!response.ok) {
       return new Response('Failed to fetch image', { status: response.status });

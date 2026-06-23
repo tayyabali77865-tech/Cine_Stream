@@ -16,21 +16,49 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream2.com',
 ];
 
+function isPrivateIp(ip) {
+  // Check loopback, link-local, private IPv4 ranges, and IPv6 loopback
+  if (
+    ip === '127.0.0.1' ||
+    ip === 'localhost' ||
+    ip === '::1' ||
+    ip === '[::1]' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('169.254.') ||
+    ip.startsWith('127.')
+  ) {
+    return true;
+  }
+  // 172.16.0.0 - 172.31.255.255
+  if (ip.startsWith('172.')) {
+    const parts = ip.split('.');
+    if (parts.length >= 2) {
+      const secondOctet = parseInt(parts[1], 10);
+      if (secondOctet >= 16 && secondOctet <= 31) {
+        return true;
+      }
+    }
+  }
+  // 192.168.0.0 - 192.168.255.255
+  if (ip.startsWith('192.168.')) {
+    return true;
+  }
+  return false;
+}
+
 function isValidProxyUrl(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
-    const hostname = parsed.hostname;
-    // SSRF Prevention: block local/private IPs and loopbacks
+    const hostname = parsed.hostname.toLowerCase();
+    
     if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.') ||
-      hostname.startsWith('169.254.')
+      isPrivateIp(hostname) ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal')
     ) {
       return false;
     }
+    
     // Allowlist check
     return ALLOWED_CDN_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
   } catch (e) {
@@ -57,28 +85,35 @@ export default async function handler(req) {
     let response;
 
     while (redirectsFollowed < maxRedirects) {
-      const headers = new Headers({
+      // Forward only safe headers (User-Agent and Range)
+      const forwardHeaders = new Headers({
         'User-Agent': req.headers.get('user-agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Range': range,
         'Referer': 'https://fmoviesunblocked.net/',
         'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Sec-Fetch-Dest': 'video',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'cross-site',
         'Connection': 'keep-alive',
       });
 
       response = await fetch(currentUrl, {
         method: req.method || 'GET',
-        headers,
+        headers: forwardHeaders,
         redirect: 'manual',
       });
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
         if (!location) break;
-        currentUrl = new URL(location, currentUrl).toString();
+        
+        // Resolve dynamic redirect location relative to current URL
+        const nextUrl = new URL(location, currentUrl).toString();
+        
+        // Strictly validate redirect target
+        if (!isValidProxyUrl(nextUrl)) {
+          return new Response('Forbidden: Redirect target is not allowed', { status: 403 });
+        }
+        
+        currentUrl = nextUrl;
         redirectsFollowed++;
       } else {
         break;

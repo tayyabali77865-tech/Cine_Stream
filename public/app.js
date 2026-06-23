@@ -85,34 +85,26 @@ const lazyImageObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
       const img = entry.target;
-      const targetSrc = img.getAttribute('data-src');
-      if (targetSrc) {
-        img.src = targetSrc;
-        img.removeAttribute('data-src');
+      const originalUrl = img.getAttribute('data-origin-src');
+      if (originalUrl) {
+        triggerImageLoad(img, originalUrl);
       }
       lazyImageObserver.unobserve(img);
     }
   });
-}, { rootMargin: '250px 0px' }); // Load ahead of viewport
+}, { rootMargin: '250px 0px' });
 
-function loadLazyImage(imgElement, originalUrl) {
-  if (!originalUrl) {
-    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
-    return;
-  }
-  
+function triggerImageLoad(imgElement, originalUrl) {
   let proxiedUrl = originalUrl;
   if (originalUrl.startsWith('http')) {
     proxiedUrl = `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
   }
-  
-  imgElement.classList.add('img-loading');
-  imgElement.setAttribute('data-src', proxiedUrl);
-  
-  let isLoaded = false;
+
+  const controller = new AbortController();
+  let triedDirect = false;
+  let isDone = false;
+
   let timeoutDuration = 1200;
-  
-  // Dynamic network speed timeout detection
   if (navigator.connection) {
     const type = navigator.connection.effectiveType;
     if (type === '3g' || type === '2g') timeoutDuration = 2200;
@@ -120,26 +112,78 @@ function loadLazyImage(imgElement, originalUrl) {
   }
 
   const timeoutId = setTimeout(() => {
-    if (!isLoaded) {
-      console.warn('Proxy slow, falling back to direct CDN:', originalUrl);
-      imgElement.src = originalUrl;
+    if (!isDone) {
+      console.warn('Proxy slow, aborting and falling back to direct CDN:', originalUrl);
+      controller.abort();
+      loadDirectCDN();
     }
   }, timeoutDuration);
 
-  imgElement.onload = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    imgElement.classList.remove('img-loading');
-    imgElement.classList.add('img-loaded');
-  };
+  // Fetch as blob to prevent double fetch race and control abort
+  fetch(proxiedUrl, { signal: controller.signal })
+    .then(res => {
+      if (!res.ok) throw new Error();
+      return res.blob();
+    })
+    .then(blob => {
+      if (isDone) return;
+      isDone = true;
+      clearTimeout(timeoutId);
+      const blobUrl = URL.createObjectURL(blob);
+      imgElement.src = blobUrl;
+      imgElement.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        imgElement.classList.remove('img-loading');
+        imgElement.classList.add('img-loaded');
+      };
+    })
+    .catch(() => {
+      if (isDone) return;
+      clearTimeout(timeoutId);
+      loadDirectCDN();
+    });
 
-  imgElement.onerror = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    imgElement.src = originalUrl; // Fallback to direct CDN on error
-  };
+  function loadDirectCDN() {
+    isDone = true;
+    imgElement.src = originalUrl;
+    
+    imgElement.onload = () => {
+      imgElement.classList.remove('img-loading');
+      imgElement.classList.add('img-loaded');
+    };
 
+    imgElement.onerror = () => {
+      if (triedDirect) {
+        imgElement.onerror = null;
+        imgElement.classList.remove('img-loading');
+        imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+        return;
+      }
+      triedDirect = true;
+      imgElement.src = originalUrl;
+    };
+  }
+}
+
+function loadLazyImage(imgElement, originalUrl) {
+  if (!originalUrl) {
+    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+    return;
+  }
+  imgElement.classList.add('img-loading');
+  imgElement.setAttribute('data-origin-src', originalUrl);
   lazyImageObserver.observe(imgElement);
+}
+
+// Network-aware prefetch helper
+function prefetchUrl(url) {
+  const connection = navigator.connection;
+  const canPrefetch = !connection || (!connection.saveData && !['slow-2g', '2g'].includes(connection.effectiveType));
+  
+  if (canPrefetch) {
+    // Background fetch to populate cache
+    apiCache.fetch(url).catch(() => {});
+  }
 }
 
 // Card Recycler Pool
@@ -182,12 +226,14 @@ class CardRecyclerPool {
     const img = card.querySelector('.card-poster');
     if (img) {
       lazyImageObserver.unobserve(img);
+      img.removeAttribute('data-origin-src');
       img.src = 'data:image/svg+xml;charset=utf-8,%3Csvg xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width%3D%27200%27 height%3D%27300%27 viewBox%3D%270 0 200 300%27%2F%3E';
       img.onload = null;
       img.onerror = null;
       img.classList.remove('img-loaded', 'img-loading');
     }
     card.classList.add('card-hidden');
+    card.remove(); // Safely remove from DOM to prevent memory leak accumulation
     this.pool.push(card);
   }
 
@@ -375,6 +421,18 @@ function renderNextBatch() {
   
   // Show infinite scroll indicator container
   paginationContainer.style.display = 'flex';
+
+  // Network-aware Prefetch next page listing in the background
+  let nextPageUrl = '';
+  if (currentQuery) {
+    nextPageUrl = `/api/search?query=${encodeURIComponent(currentQuery)}&page=${currentPage + 1}`;
+  } else {
+    nextPageUrl = `/api/data?page=${currentPage + 1}`;
+    if (currentCategory) {
+      nextPageUrl += `&category=${encodeURIComponent(currentCategory)}`;
+    }
+  }
+  prefetchUrl(nextPageUrl);
 }
 
 // Fetch more from server
@@ -862,6 +920,22 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
             const seasonSelect = document.getElementById('season-select');
             const episodeGrid = document.getElementById('episode-grid');
 
+            // Prefetch next likely episode player URL in the background
+            const triggerNextEpisodePrefetch = (se, ep) => {
+              const nextEp = ep + 1;
+              const hasNextInSeason = getEpisodesArray(movie.seasons.find(s => s.se === se)?.ep || 0).includes(nextEp);
+              if (hasNextInSeason) {
+                let prefetchUrlStr = `/api/movie/${slug}/player?se=${se}&ep=${nextEp}`;
+                if (movie.subjectid && movie.title && movie.dp) {
+                  prefetchUrlStr += `&subjectid=${encodeURIComponent(movie.subjectid)}&title=${encodeURIComponent(movie.title)}&dp=${encodeURIComponent(movie.dp)}`;
+                }
+                prefetchUrl(prefetchUrlStr);
+              }
+            };
+
+            // Trigger initial prefetch for episode 2
+            triggerNextEpisodePrefetch(parseInt(movie.seasons[0].se), 1);
+
             const attachEpisodeClickListeners = () => {
               const buttons = episodeGrid.querySelectorAll('.episode-btn');
               buttons.forEach(btn => {
@@ -869,8 +943,9 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
                   buttons.forEach(b => b.classList.remove('active'));
                   btn.classList.add('active');
                   const selectedSe = parseInt(seasonSelect.value);
-                  const selectedEp = btn.getAttribute('data-episode');
+                  const selectedEp = parseInt(btn.getAttribute('data-episode'));
                   updatePlayerSource(slug, selectedSe, selectedEp, movie.subjectid, movie.title, movie.dp);
+                  triggerNextEpisodePrefetch(selectedSe, selectedEp);
                 });
               });
             };
@@ -890,6 +965,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
                   `).join('');
                   attachEpisodeClickListeners();
                   updatePlayerSource(slug, selectedSe, eps[0], movie.subjectid, movie.title, movie.dp);
+                  triggerNextEpisodePrefetch(selectedSe, 1);
                 }
               });
             }
