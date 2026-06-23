@@ -203,8 +203,15 @@ async function fetchMoreFromServer() {
     loadMoreBtn.innerHTML = `<span>Load More Content</span><i class="fa-solid fa-arrow-down-long"></i>`;
     
     if (data.success && data.data && data.data.length > 0) {
-      loadedMovies = loadedMovies.concat(data.data);
-      renderNextBatch();
+      // Deduplicate new batch against already loaded slugs
+      const existingSlugs = new Set(loadedMovies.map(m => m.slug));
+      const newUnique = data.data.filter(m => {
+        if (existingSlugs.has(m.slug)) return false;
+        existingSlugs.add(m.slug);
+        return true;
+      });
+      loadedMovies = loadedMovies.concat(newUnique);
+      if (newUnique.length > 0) renderNextBatch();
     } else {
       paginationContainer.style.display = 'none';
     }
@@ -237,7 +244,13 @@ async function loadMovies() {
 
     if (data.success && data.data && data.data.length > 0) {
       moviesGrid.innerHTML = '';
-      loadedMovies = data.data;
+      // Deduplicate by slug before rendering
+      const seen = new Set();
+      loadedMovies = data.data.filter(m => {
+        if (seen.has(m.slug)) return false;
+        seen.add(m.slug);
+        return true;
+      });
       renderNextBatch();
     } else {
       moviesGrid.innerHTML = `
@@ -325,8 +338,11 @@ function createMovieCard(movie, index = 100) {
   // Format badge
   const formatBadge = movie.media_type === 'tv' ? 'Series' : 'Movie';
 
-  // Use the direct poster URL from the CDN to avoid local server queuing
-  const proxiedPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+  // Use the image-proxy endpoint to speed up and cache external CDN posters
+  let proxiedPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+  if (proxiedPoster.startsWith('http')) {
+    proxiedPoster = `/api/image-proxy?url=${encodeURIComponent(proxiedPoster)}`;
+  }
 
   // Eager loading and high fetchpriority for the first 8 images above the fold
   const isAboveFold = index < 8 && currentPage === 1;
@@ -488,7 +504,10 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         </div>
       `;
 
-      const proxiedDetailPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+      let proxiedDetailPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+      if (proxiedDetailPoster.startsWith('http')) {
+        proxiedDetailPoster = `/api/image-proxy?url=${encodeURIComponent(proxiedDetailPoster)}`;
+      }
 
       modalBody.innerHTML = `
         <div class="details-header">
@@ -591,34 +610,49 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
               if (item.slug === slug && existingIdx !== -1) {
                 dubOptions[existingIdx] = {
                   html: `<option value="${item.slug}" selected>${label}</option>`,
-                  stdLabel
+                  stdLabel,
+                  slug: item.slug
                 };
               }
               return;
             }
 
             seenLabels.add(stdLabel);
-            const isSelected = item.slug === slug ? 'selected' : '';
             dubOptions.push({
-              html: `<option value="${item.slug}" ${isSelected}>${label}</option>`,
-              stdLabel
+              html: `<option value="${item.slug}">${label}</option>`,
+              stdLabel,
+              slug: item.slug
             });
           });
 
           if (dubOptions.length > 0) {
-            const currentInDubs = relatedData.data.some(item => {
-              let label = '';
-              const match = item.title.match(/\[([^\]]+)\]/);
-              if (match) label = match[1];
-              else if (item.title.toLowerCase().includes('english')) label = 'English';
-              return label && label.toLowerCase() !== 'multi-audio' && item.slug === slug;
-            });
+            // Determine if current slug is already represented in dubOptions
+            const currentInDubs = dubOptions.some(opt => opt.slug === slug);
+
+            // If current slug not in dubbed list, prepend it with its own language label
+            if (!currentInDubs) {
+              let currentLabel = 'Original';
+              const currentMatch = movie.title.match(/\[([^\]]+)\]/);
+              if (currentMatch) currentLabel = currentMatch[1];
+              else if (movie.title.toLowerCase().includes('english')) currentLabel = 'English';
+              dubOptions.unshift({
+                html: `<option value="${slug}" selected>${currentLabel}</option>`,
+                stdLabel: currentLabel.trim().toLowerCase(),
+                slug: slug
+              });
+            } else {
+              // Mark current slug as selected
+              dubOptions.forEach(opt => {
+                if (opt.slug === slug) {
+                  opt.html = opt.html.replace('<option value=', '<option selected value=');
+                }
+              });
+            }
 
             dubsSelectHTML = `
               <div class="selector-wrapper">
                 <label for="dub-select"><i class="fa-solid fa-language"></i> Dubbed Version:</label>
                 <select id="dub-select" class="detail-select">
-                  ${!currentInDubs ? '<option value="" disabled selected>Select Language</option>' : ''}
                   ${dubOptions.map(opt => opt.html).join('')}
                 </select>
               </div>
@@ -730,20 +764,22 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         console.error('Error rendering selectors:', err);
       }
 
-      // Fetch recommendations based on current movie category
+      // Fetch recommendations from a random category
       const loadRecommendations = async () => {
         try {
-          const recCat = movie.category || 'hollywood';
+          const allCats = ['bollywood', 'south-hindi', 'hollywood', 'anime', 'k-drama', 'c-drama', 'reality-tv', 'action', 'romance', 'horror'];
+          const recCat = allCats[Math.floor(Math.random() * allCats.length)];
           const recRes = await fetch(`/api/data?category=${encodeURIComponent(recCat)}`);
           const recData = await recRes.json();
           if (recData.success && recData.data && recData.data.length > 0) {
-            const filteredRecs = recData.data.filter(item => item.slug !== slug).slice(0, 12);
-            if (filteredRecs.length > 0) {
+            // Shuffle the results for variety
+            const shuffled = recData.data.filter(item => item.slug !== slug).sort(() => Math.random() - 0.5).slice(0, 12);
+            if (shuffled.length > 0) {
               const recSection = document.getElementById('recommended-section');
               const recTrack = document.getElementById('rec-slider-track');
               recTrack.innerHTML = '';
               
-              filteredRecs.forEach(item => {
+              shuffled.forEach(item => {
                 const card = createMovieCard(item);
                 recTrack.appendChild(card);
               });
@@ -761,7 +797,6 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
               // Attach View All listener
               document.getElementById('rec-view-all-btn').addEventListener('click', () => {
                 closeModal(true);
-                // Reset categories sidebar & load category
                 const categories = categoryList.querySelectorAll('li');
                 categories.forEach(li => {
                   li.classList.remove('active');

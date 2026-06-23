@@ -48,46 +48,9 @@ function mapMovieResults(results, categorySlug) {
 
 function sortTrendingMovies(movies) {
   return movies.sort((a, b) => {
-    const aTitle = a.title.toLowerCase();
-    const bTitle = b.title.toLowerCase();
-
-    const aIsAnime = aTitle.includes('anime') || a.category === 'anime';
-    const bIsAnime = bTitle.includes('anime') || b.category === 'anime';
-    if (aIsAnime && !bIsAnime) return -1;
-    if (!aIsAnime && bIsAnime) return 1;
-
-    const isIndian = (item, title) => {
-      if (item.isIndian === true) return true;
-      if (item.isIndian === false) return false;
-
-      const cat = (item.category || '').toLowerCase();
-      if (cat === 'bollywood' || cat === 'south-hindi') return true;
-      
-      const indianKeywords = [
-        'bollywood', 'south hindi', 'tollywood', 'kollywood', 'punjabi', 
-        'tamil', 'telugu', 'kannada', 'malayalam', 'bhojpuri', 'bengali', 
-        'marathi', 'indian', 'kapil sharma', 'bigg boss', 'indian idol', 
-        'india\'s got talent', 'super dancer', 'pati patni aur panga', 
-        'two much with kajol', 'pitch to get rich', 'suriya', 'kanguva',
-        'pushpa', 'singham', 'bhooth', 'bangla', 'raakh', 'latent', 'india'
-      ];
-      if (indianKeywords.some(kw => title.includes(kw))) return true;
-      
-      if (!['anime', 'k-drama', 'c-drama', 'hollywood'].includes(cat) && (title.includes('hindi') || title.includes('[hindi]'))) {
-        return true;
-      }
-      
-      if (cat === 'reality-tv' && title.includes('[hindi]')) return true;
-      
-      return false;
-    };
-
-    const aIsIndian = isIndian(a, aTitle);
-    const bIsIndian = isIndian(b, bTitle);
-    if (!aIsIndian && bIsIndian) return -1;
-    if (aIsIndian && !bIsIndian) return 1;
-
-    return 0;
+    const dateA = a.scrapedAt ? new Date(a.scrapedAt) : new Date(0);
+    const dateB = b.scrapedAt ? new Date(b.scrapedAt) : new Date(0);
+    return dateB - dateA;
   });
 }
 
@@ -100,13 +63,6 @@ export default async function handler(req, res) {
     const client = await clientPromise;
     const db = client.db();
     
-    const queryObj = {};
-    if (category && category !== 'home') {
-      queryObj.category = category;
-    } else if (!category) {
-      queryObj.category = 'trending';
-    }
-    
     const limit = 24;
     const skip = pageIndex * limit;
 
@@ -115,7 +71,7 @@ export default async function handler(req, res) {
 
     if (category === 'trending' || !category) {
       const allTrending = await db.collection('movies')
-        .find({ category: 'trending' })
+        .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] })
         .sort({ scrapedAt: -1 })
         .toArray();
 
@@ -124,6 +80,7 @@ export default async function handler(req, res) {
       totalCount = sortedTrending.length;
       paginated = sortedTrending.slice(skip, skip + limit);
     } else {
+      const queryObj = { $or: [{ category: category }, { categories: category }] };
       totalCount = await db.collection('movies').countDocuments(queryObj);
       paginated = await db.collection('movies')
         .find(queryObj)
@@ -160,22 +117,37 @@ export default async function handler(req, res) {
                 } else if (catSlug === 'hollywood' || catSlug === 'anime' || catSlug === 'k-drama' || catSlug === 'c-drama') {
                   isInd = false;
                 }
-                if (isInd !== null) {
-                  movie.isIndian = isInd;
-                }
 
-                const exists = await db.collection('movies').findOne({ slug: movie.slug });
-                if (!exists) {
-                  await db.collection('movies').insertOne(movie);
-                } else if (isInd !== null) {
-                  await db.collection('movies').updateOne({ slug: movie.slug }, { $set: { isIndian: isInd } });
-                }
+                // Atomic upsert — no duplicates possible
+                const setOnInsert = {
+                  title: movie.title,
+                  url: movie.url,
+                  poster: movie.poster,
+                  media_type: movie.media_type,
+                  release_date: movie.release_date,
+                  vote_average: movie.vote_average,
+                  category: catSlug,
+                  scrapedAt: movie.scrapedAt
+                };
+                if (isInd !== null) setOnInsert.isIndian = isInd;
+
+                const updateOp = {
+                  $addToSet: { categories: catSlug },
+                  $setOnInsert: setOnInsert
+                };
+                if (isInd !== null) updateOp.$set = { isIndian: isInd };
+
+                await db.collection('movies').updateOne(
+                  { slug: movie.slug },
+                  updateOp,
+                  { upsert: true }
+                );
               }
 
               // Re-query database after inserts
               if (category === 'trending' || !category) {
                 const allTrending = await db.collection('movies')
-                  .find({ category: 'trending' })
+                  .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] })
                   .sort({ scrapedAt: -1 })
                   .toArray();
 
@@ -183,13 +155,14 @@ export default async function handler(req, res) {
                 totalCount = sortedTrending.length;
                 paginated = sortedTrending.slice(skip, skip + limit);
               } else {
+                const reQueryObj = { $or: [{ category: catSlug }, { categories: catSlug }] };
                 paginated = await db.collection('movies')
-                  .find(queryObj)
+                  .find(reQueryObj)
                   .sort({ scrapedAt: -1 })
                   .skip(skip)
                   .limit(limit)
                   .toArray();
-                totalCount = await db.collection('movies').countDocuments(queryObj);
+                totalCount = await db.collection('movies').countDocuments(reQueryObj);
               }
             }
           }
@@ -200,12 +173,19 @@ export default async function handler(req, res) {
     }
       
     if (totalCount > 0) {
+      // Deduplicate by slug before returning (safety net)
+      const seen = new Set();
+      const dedupedPaginated = paginated.filter(m => {
+        if (seen.has(m.slug)) return false;
+        seen.add(m.slug);
+        return true;
+      });
       return res.status(200).json({
         success: true,
         page: parseInt(page),
         category: category || 'home',
         count: totalCount,
-        data: paginated
+        data: dedupedPaginated
       });
     }
     console.log('[Cache] Database cache is empty. Performing live fetch.');

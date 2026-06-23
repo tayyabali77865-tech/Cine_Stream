@@ -58,17 +58,18 @@ async function runScraperTask() {
 
   for (const cat of CATEGORIES) {
     try {
-      const url = `${API_BASE_3}/tranding?id=${cat.id}&page=0`;
-      const response = await fetchWithRetry(url);
-      const data = await response.json();
+      for (let pageNum = 0; pageNum <= 30; pageNum++) {
+        const url = `${API_BASE_3}/tranding?id=${cat.id}&page=${pageNum}`;
+        const response = await fetchWithRetry(url);
+        const data = await response.json();
 
-      if (data.results && Array.isArray(data.results)) {
+        if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
+          break;
+        }
+
         const mapped = mapMovieResults(data.results, cat.slug);
         
         for (const movie of mapped) {
-          // Check if exists in MongoDB (incremental check)
-          const exists = await moviesCollection.findOne({ slug: movie.slug });
-          
           let isInd = null;
           if (cat.slug === 'bollywood' || cat.slug === 'south-hindi') {
             isInd = true;
@@ -76,25 +77,42 @@ async function runScraperTask() {
             isInd = false;
           }
 
-          if (isInd !== null) {
-            movie.isIndian = isInd;
-          }
+          // Atomic upsert: insert new or update existing — prevents duplicates entirely
+          const setOnInsert = {
+            title: movie.title,
+            url: movie.url,
+            poster: movie.poster,
+            media_type: movie.media_type,
+            release_date: movie.release_date,
+            vote_average: movie.vote_average,
+            category: cat.slug,
+            scrapedAt: movie.scrapedAt
+          };
+          if (isInd !== null) setOnInsert.isIndian = isInd;
 
-          if (!exists) {
-            await moviesCollection.insertOne(movie);
-            addedCount++;
-          } else {
-            if (isInd !== null) {
-              await moviesCollection.updateOne({ slug: movie.slug }, { $set: { isIndian: isInd } });
-            }
-          }
+          const setFields = {};
+          if (isInd !== null) setFields.isIndian = isInd;
+
+          const updateOp = {
+            $addToSet: { categories: cat.slug },
+            $setOnInsert: setOnInsert
+          };
+          if (Object.keys(setFields).length > 0) updateOp.$set = setFields;
+
+          const result = await moviesCollection.updateOne(
+            { slug: movie.slug },
+            updateOp,
+            { upsert: true }
+          );
+          if (result.upsertedCount > 0) addedCount++;
         }
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     } catch (err) {
       await dbLog('error', `Failed to scrape category ${cat.name}`, { error: err.message });
       throw err; // propagate to trigger retry system
     }
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   await dbLog('info', `Scraper finished successfully. Added ${addedCount} new records.`);
