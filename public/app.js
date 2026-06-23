@@ -1,6 +1,6 @@
 // State Management
 let currentPage = 1;
-let currentCategory = 'trending'; // Set default category to trending
+let currentCategory = 'trending';
 let currentQuery = '';
 let isLoading = false;
 let loadedMovies = [];
@@ -24,52 +24,259 @@ const modalBackdrop = document.getElementById('modal-backdrop');
 const modalBody = document.getElementById('modal-body');
 const navBrand = document.getElementById('nav-brand');
 
+// Cache Layer (Synchronous Map-based client-side caching)
+class ClientCache {
+  constructor(maxSize = 200, ttl = 300000) { // 5 minutes TTL
+    this.cache = new Map();
+    this.pendingRequests = new Map();
+    this.maxSize = maxSize;
+    this.ttl = ttl;
+  }
+
+  set(url, data) {
+    if (this.cache.has(url)) {
+      this.cache.delete(url);
+    } else if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      this.cache.delete(oldestKey);
+    }
+    this.cache.set(url, { data, timestamp: Date.now() });
+  }
+
+  async fetch(url, options = {}, abortController = null) {
+    if (this.cache.has(url)) {
+      const { data, timestamp } = this.cache.get(url);
+      if (Date.now() - timestamp < this.ttl) {
+        // Refresh position in Map (LRU)
+        this.cache.delete(url);
+        this.cache.set(url, { data, timestamp });
+        return Promise.resolve(data);
+      }
+      this.cache.delete(url);
+    }
+
+    if (this.pendingRequests.has(url)) {
+      return this.pendingRequests.get(url);
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: abortController ? abortController.signal : undefined
+        });
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+        const data = await response.json();
+        this.set(url, data);
+        return data;
+      } finally {
+        this.pendingRequests.delete(url);
+      }
+    })();
+
+    this.pendingRequests.set(url, fetchPromise);
+    return fetchPromise;
+  }
+}
+const apiCache = new ClientCache();
+
+// Shared IntersectionObserver for lazy loading images
+const lazyImageObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const img = entry.target;
+      const targetSrc = img.getAttribute('data-src');
+      if (targetSrc) {
+        img.src = targetSrc;
+        img.removeAttribute('data-src');
+      }
+      lazyImageObserver.unobserve(img);
+    }
+  });
+}, { rootMargin: '250px 0px' }); // Load ahead of viewport
+
+function loadLazyImage(imgElement, originalUrl) {
+  if (!originalUrl) {
+    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+    return;
+  }
+  
+  let proxiedUrl = originalUrl;
+  if (originalUrl.startsWith('http')) {
+    proxiedUrl = `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+  }
+  
+  imgElement.classList.add('img-loading');
+  imgElement.setAttribute('data-src', proxiedUrl);
+  
+  let isLoaded = false;
+  let timeoutDuration = 1200;
+  
+  // Dynamic network speed timeout detection
+  if (navigator.connection) {
+    const type = navigator.connection.effectiveType;
+    if (type === '3g' || type === '2g') timeoutDuration = 2200;
+    else if (type === '4g') timeoutDuration = 1200;
+  }
+
+  const timeoutId = setTimeout(() => {
+    if (!isLoaded) {
+      console.warn('Proxy slow, falling back to direct CDN:', originalUrl);
+      imgElement.src = originalUrl;
+    }
+  }, timeoutDuration);
+
+  imgElement.onload = () => {
+    isLoaded = true;
+    clearTimeout(timeoutId);
+    imgElement.classList.remove('img-loading');
+    imgElement.classList.add('img-loaded');
+  };
+
+  imgElement.onerror = () => {
+    isLoaded = true;
+    clearTimeout(timeoutId);
+    imgElement.src = originalUrl; // Fallback to direct CDN on error
+  };
+
+  lazyImageObserver.observe(imgElement);
+}
+
+// Card Recycler Pool
+class CardRecyclerPool {
+  constructor(size = 36) {
+    this.pool = [];
+    for (let i = 0; i < size; i++) {
+      this.pool.push(this.createNewCardNode());
+    }
+  }
+
+  createNewCardNode() {
+    const div = document.createElement('div');
+    div.className = 'movie-card';
+    div.innerHTML = `
+      <div class="card-poster-wrapper">
+        <img class="card-poster" alt="Poster">
+        <div class="card-badge"></div>
+      </div>
+      <div class="card-info">
+        <h4 class="card-title"></h4>
+        <div class="card-actions">
+          <span class="card-format-badge"></span>
+          <span><i class="fa-solid fa-star" style="color: gold;"></i> <span class="rating-text"></span></span>
+        </div>
+      </div>
+    `;
+    return div;
+  }
+
+  acquire(movie) {
+    const card = this.pool.pop() || this.createNewCardNode();
+    card.classList.remove('card-hidden');
+    this.populate(card, movie);
+    return card;
+  }
+
+  release(card) {
+    card.onclick = null;
+    const img = card.querySelector('.card-poster');
+    if (img) {
+      lazyImageObserver.unobserve(img);
+      img.src = 'data:image/svg+xml;charset=utf-8,%3Csvg xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width%3D%27200%27 height%3D%27300%27 viewBox%3D%270 0 200 300%27%2F%3E';
+      img.onload = null;
+      img.onerror = null;
+      img.classList.remove('img-loaded', 'img-loading');
+    }
+    card.classList.add('card-hidden');
+    this.pool.push(card);
+  }
+
+  populate(card, movie) {
+    const img = card.querySelector('.card-poster');
+    const badge = card.querySelector('.card-badge');
+    const title = card.querySelector('.card-title');
+    const format = card.querySelector('.card-format-badge');
+    const rating = card.querySelector('.rating-text');
+
+    title.textContent = movie.title;
+    title.title = movie.title;
+    rating.textContent = movie.vote_average || 'N/A';
+    
+    const formatBadge = movie.media_type === 'tv' ? 'Series' : 'Movie';
+    format.textContent = formatBadge;
+    format.className = `card-format-badge ${formatBadge.toLowerCase()}`;
+
+    let audioBadge = 'Multi-Audio';
+    const titleLower = movie.title.toLowerCase();
+    if (titleLower.includes('[hindi]')) audioBadge = 'Hindi Dubbed';
+    else if (titleLower.includes('[english]')) audioBadge = 'English';
+    else if (titleLower.includes('[tamil]')) audioBadge = 'Tamil Dubbed';
+    else if (titleLower.includes('[telugu]')) audioBadge = 'Telugu Dubbed';
+
+    badge.textContent = audioBadge;
+    loadLazyImage(img, movie.poster);
+    
+    card.onclick = () => {
+      window.location.hash = movie.slug;
+    };
+  }
+}
+const cardPool = new CardRecyclerPool();
+
+// Infinite Scroll Observer
+let infiniteScrollObserver;
+function setupInfiniteScroll() {
+  if (infiniteScrollObserver) infiniteScrollObserver.disconnect();
+
+  infiniteScrollObserver = new IntersectionObserver((entries) => {
+    const entry = entries[0];
+    if (entry.isIntersecting && !isLoading) {
+      if (loadedMovies.length - displayedCount >= ITEMS_PER_PAGE) {
+        renderNextBatch();
+      } else {
+        currentPage++;
+        fetchMoreFromServer();
+      }
+    }
+  }, { rootMargin: '300px' });
+
+  // Watch the pagination container (the bottom of our content)
+  if (paginationContainer) {
+    infiniteScrollObserver.observe(paginationContainer);
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   loadCategories();
   loadMovies();
   setupEventListeners();
-  checkHashRoute(); // Check for hash on initial load
+  checkHashRoute();
+  setupInfiniteScroll();
 });
 
 // Setup Listeners
 function setupEventListeners() {
-  // Brand Click (Reset home)
   navBrand.addEventListener('click', (e) => {
     e.preventDefault();
     resetState();
     loadMovies();
   });
 
-  // Search Action
   searchBtn.addEventListener('click', handleSearch);
   searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleSearch();
   });
 
-  // Load More Action
-  loadMoreBtn.addEventListener('click', () => {
-    if (isLoading) return;
-    if (loadedMovies.length - displayedCount >= ITEMS_PER_PAGE) {
-      renderNextBatch();
-    } else {
-      currentPage++;
-      fetchMoreFromServer();
-    }
-  });
-
-  // Clear Category Filter
   clearFilterBtn.addEventListener('click', () => {
     resetState();
     loadMovies();
   });
 
-  // Close Modal Actions
   modalClose.addEventListener('click', () => closeModal(true));
   modalBackdrop.addEventListener('click', () => closeModal(true));
 
-  // Menu Toggle Action (Sidebar)
   const menuToggle = document.getElementById('menu-toggle');
   const sidebar = document.getElementById('sidebar');
   if (menuToggle && sidebar) {
@@ -78,7 +285,6 @@ function setupEventListeners() {
       sidebar.classList.toggle('active');
     });
 
-    // Close sidebar on clicking anywhere outside
     document.addEventListener('click', (e) => {
       if (sidebar.classList.contains('active') && !sidebar.contains(e.target) && e.target !== menuToggle && !menuToggle.contains(e.target)) {
         sidebar.classList.remove('active');
@@ -86,7 +292,6 @@ function setupEventListeners() {
     });
   }
 
-  // Hashchange Router listener
   window.addEventListener('hashchange', checkHashRoute);
 }
 
@@ -123,15 +328,11 @@ function getSkeletonsHTML(count = 8) {
 // Load Categories
 async function loadCategories() {
   try {
-    const res = await fetch('/api/categories');
-    const data = await res.json();
-
+    const data = await apiCache.fetch('/api/categories');
     if (data.success && data.data) {
       categoryList.innerHTML = '';
-
       data.data.forEach(cat => {
         const li = document.createElement('li');
-        // Set trending category active by default on load
         if (cat.slug === currentCategory) {
           li.className = 'active';
         }
@@ -142,11 +343,8 @@ async function loadCategories() {
           resetCategoryFilter(cat.slug, cat.name);
           loadMovies();
 
-          // Close mobile sidebar on select
           const sidebar = document.getElementById('sidebar');
-          if (sidebar) {
-            sidebar.classList.remove('active');
-          }
+          if (sidebar) sidebar.classList.remove('active');
         });
         categoryList.appendChild(li);
       });
@@ -162,28 +360,27 @@ function setActiveCategoryLi(activeLi) {
   activeLi.classList.add('active');
 }
 
-// Render next batch of items (up to ITEMS_PER_PAGE)
+// Render next batch of items (up to ITEMS_PER_PAGE) using DocumentFragment (Zero Layout Shift)
 function renderNextBatch() {
   const nextBatch = loadedMovies.slice(displayedCount, displayedCount + ITEMS_PER_PAGE);
-  nextBatch.forEach((movie, idx) => {
-    const card = createMovieCard(movie, displayedCount + idx);
-    moviesGrid.appendChild(card);
+  const fragment = document.createDocumentFragment();
+
+  nextBatch.forEach((movie) => {
+    const card = cardPool.acquire(movie);
+    fragment.appendChild(card);
   });
+
+  moviesGrid.appendChild(fragment);
   displayedCount += nextBatch.length;
   
-  if (loadedMovies.length > 0) {
-    paginationContainer.style.display = 'flex';
-  } else {
-    paginationContainer.style.display = 'none';
-  }
+  // Show infinite scroll indicator container
+  paginationContainer.style.display = 'flex';
 }
 
 // Fetch more from server
 async function fetchMoreFromServer() {
   if (isLoading) return;
   isLoading = true;
-  loadMoreBtn.classList.add('loading');
-  loadMoreBtn.innerText = 'Loading...';
   
   try {
     let url = '';
@@ -196,14 +393,8 @@ async function fetchMoreFromServer() {
       }
     }
     
-    const res = await fetch(url);
-    const data = await res.json();
-    
-    loadMoreBtn.classList.remove('loading');
-    loadMoreBtn.innerHTML = `<span>Load More Content</span><i class="fa-solid fa-arrow-down-long"></i>`;
-    
+    const data = await apiCache.fetch(url);
     if (data.success && data.data && data.data.length > 0) {
-      // Deduplicate new batch against already loaded slugs
       const existingSlugs = new Set(loadedMovies.map(m => m.slug));
       const newUnique = data.data.filter(m => {
         if (existingSlugs.has(m.slug)) return false;
@@ -211,8 +402,11 @@ async function fetchMoreFromServer() {
         return true;
       });
       loadedMovies = loadedMovies.concat(newUnique);
-      if (newUnique.length > 0) renderNextBatch();
+      if (newUnique.length > 0) {
+        renderNextBatch();
+      }
     } else {
+      if (infiniteScrollObserver) infiniteScrollObserver.disconnect();
       paginationContainer.style.display = 'none';
     }
   } catch (err) {
@@ -228,6 +422,11 @@ async function loadMovies() {
   isLoading = true;
 
   currentPage = 1;
+  
+  // Release current active cards back to pool
+  const activeCards = Array.from(moviesGrid.querySelectorAll('.movie-card'));
+  activeCards.forEach(c => cardPool.release(c));
+  
   moviesGrid.innerHTML = getSkeletonsHTML();
   paginationContainer.style.display = 'none';
   loadedMovies = [];
@@ -239,12 +438,9 @@ async function loadMovies() {
       url += `&category=${encodeURIComponent(currentCategory)}`;
     }
 
-    const res = await fetch(url);
-    const data = await res.json();
-
+    const data = await apiCache.fetch(url);
     if (data.success && data.data && data.data.length > 0) {
       moviesGrid.innerHTML = '';
-      // Deduplicate by slug before rendering
       const seen = new Set();
       loadedMovies = data.data.filter(m => {
         if (seen.has(m.slug)) return false;
@@ -252,6 +448,7 @@ async function loadMovies() {
         return true;
       });
       renderNextBatch();
+      setupInfiniteScroll(); // Reactivate infinite scroll observer
     } else {
       moviesGrid.innerHTML = `
         <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">
@@ -284,12 +481,14 @@ async function handleSearch() {
   resetState();
   currentQuery = query;
 
-  // Show active search banner
   filterBanner.style.display = 'flex';
   filterTitle.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i> Search results for: <strong>${query}</strong>`;
 
-  // Clear category active states
   categoryList.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+
+  // Release current active cards
+  const activeCards = Array.from(moviesGrid.querySelectorAll('.movie-card'));
+  activeCards.forEach(c => cardPool.release(c));
 
   moviesGrid.innerHTML = getSkeletonsHTML();
   paginationContainer.style.display = 'none';
@@ -298,19 +497,18 @@ async function handleSearch() {
   isLoading = true;
 
   try {
-    const res = await fetch(`/api/search?query=${encodeURIComponent(query)}&page=${currentPage}`);
-    const data = await res.json();
-
+    const data = await apiCache.fetch(`/api/search?query=${encodeURIComponent(query)}&page=${currentPage}`);
     if (data.success && data.data && data.data.length > 0) {
       moviesGrid.innerHTML = '';
       loadedMovies = data.data;
       renderNextBatch();
+      setupInfiniteScroll();
     } else {
       moviesGrid.innerHTML = `
         <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">
           <i class="fa-solid fa-circle-question" style="font-size: 3rem; margin-bottom: 15px; color: var(--accent);"></i>
           <h3>No matching content found</h3>
-          <p>Try searching for different keywords (e.g. Heist, Naruto, One Piece).</p>
+          <p>Try searching for different keywords.</p>
         </div>
       `;
     }
@@ -322,52 +520,6 @@ async function handleSearch() {
   }
 }
 
-// Create Card Element
-function createMovieCard(movie, index = 100) {
-  const div = document.createElement('div');
-  div.className = 'movie-card';
-
-  // Guess audio/type badge
-  let audioBadge = 'Multi-Audio';
-  const titleLower = movie.title.toLowerCase();
-  if (titleLower.includes('[hindi]')) audioBadge = 'Hindi Dubbed';
-  else if (titleLower.includes('[english]')) audioBadge = 'English';
-  else if (titleLower.includes('[tamil]')) audioBadge = 'Tamil Dubbed';
-  else if (titleLower.includes('[telugu]')) audioBadge = 'Telugu Dubbed';
-
-  // Format badge
-  const formatBadge = movie.media_type === 'tv' ? 'Series' : 'Movie';
-
-  // Use the image-proxy endpoint to speed up and cache external CDN posters
-  let proxiedPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
-  if (proxiedPoster.startsWith('http')) {
-    proxiedPoster = `/api/image-proxy?url=${encodeURIComponent(proxiedPoster)}`;
-  }
-
-  // Eager loading and high fetchpriority for the first 8 images above the fold
-  const isAboveFold = index < 8 && currentPage === 1;
-  const loadingAttr = isAboveFold ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
-
-  div.innerHTML = `
-    <div class="card-poster-wrapper">
-      <img src="${proxiedPoster}" alt="${movie.title}" class="card-poster" ${loadingAttr} onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
-      <div class="card-badge">${audioBadge}</div>
-    </div>
-    <div class="card-info">
-      <h4 class="card-title" title="${movie.title}">${movie.title}</h4>
-      <div class="card-actions">
-        <span class="card-format-badge ${formatBadge.toLowerCase()}">${formatBadge}</span>
-        <span><i class="fa-solid fa-star" style="color: gold;"></i> ${movie.vote_average || 'N/A'}</span>
-      </div>
-    </div>
-  `;
-
-  div.addEventListener('click', () => {
-    window.location.hash = movie.slug;
-  });
-  return div;
-}
-
 // Helper to get episodes list
 function getEpisodesArray(ep) {
   if (typeof ep === 'string' && ep.includes(',')) {
@@ -377,7 +529,7 @@ function getEpisodesArray(ep) {
   return Array.from({ length: count }, (_, i) => i + 1);
 }
 
-// Open Details Modal
+// Open Details Modal (Instant Rendering & Memoized Controls Switch)
 async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, isLanguageSwitch = false) {
   if (updateHash) {
     window.location.hash = slug;
@@ -406,11 +558,11 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
     `;
   }
 
+  // Fast Path language Switch
   if (isLanguageSwitch && isAlreadyOpen) {
     isLanguageSwitching = true;
     try {
-      const res = await fetch(`/api/movie/${slug}`);
-      const result = await res.json();
+      const result = await apiCache.fetch(`/api/movie/${slug}`);
       if (result.success && result.data) {
         const movie = result.data;
         const playerContainer = modalBody.querySelector('.player-container');
@@ -467,9 +619,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
   }
 
   try {
-    const res = await fetch(`/api/movie/${slug}`);
-    const result = await res.json();
-
+    const result = await apiCache.fetch(`/api/movie/${slug}`);
     if (result.success && result.data) {
       const movie = result.data;
 
@@ -495,8 +645,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         `;
       }
 
-      // Initial structure of the control bar
-      let seriesSelectorsHTML = `
+      const seriesSelectorsHTML = `
         <div class="series-controls-container" id="details-controls-container">
           <div style="color: var(--text-secondary); display: flex; align-items: center; gap: 8px;">
             <i class="fa-solid fa-circle-notch fa-spin"></i> Checking dubbed options...
@@ -558,14 +707,12 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         </div>
       `;
 
-      // Fetch related dubbed versions asynchronously and render dropdowns
+      // Fetch related dubbed versions asynchronously
       try {
         const cleanTitle = movie.title.split('[')[0].split('Season')[0].split('S1')[0].split('complete')[0].trim();
-        const relatedRes = await fetch(`/api/movie/${slug}/related?title=${encodeURIComponent(cleanTitle)}`);
-        const relatedData = await relatedRes.json();
+        const relatedData = await apiCache.fetch(`/api/movie/${slug}/related?title=${encodeURIComponent(cleanTitle)}`);
 
         if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
-          // If auto-switch is enabled and Hindi dubbed version is available, switch to it!
           if (allowAutoSwitch) {
             const currentTitleLower = movie.title.toLowerCase();
             const currentIsHindi = currentTitleLower.includes('[hindi]') || currentTitleLower.includes('hindi dubbed') || currentTitleLower.includes('hindi');
@@ -597,14 +744,10 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
               label = 'English';
             }
 
-            // Skip Multi-Audio options
-            if (!label || label.toLowerCase() === 'multi-audio') {
-              return;
-            }
+            if (!label || label.toLowerCase() === 'multi-audio') return;
 
             const stdLabel = label.trim().toLowerCase();
 
-            // Deduplicate to avoid repeating "Hindi Dubbed"
             if (seenLabels.has(stdLabel)) {
               const existingIdx = dubOptions.findIndex(opt => opt.stdLabel === stdLabel);
               if (item.slug === slug && existingIdx !== -1) {
@@ -626,10 +769,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
           });
 
           if (dubOptions.length > 0) {
-            // Determine if current slug is already represented in dubOptions
             const currentInDubs = dubOptions.some(opt => opt.slug === slug);
-
-            // If current slug not in dubbed list, prepend it with its own language label
             if (!currentInDubs) {
               let currentLabel = 'Original';
               const currentMatch = movie.title.match(/\[([^\]]+)\]/);
@@ -641,7 +781,6 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
                 slug: slug
               });
             } else {
-              // Mark current slug as selected
               dubOptions.forEach(opt => {
                 if (opt.slug === slug) {
                   opt.html = opt.html.replace('<option value=', '<option selected value=');
@@ -660,7 +799,6 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
           }
         }
 
-        // Build season/episode selector HTML
         let seasonSelectorHTML = '';
         let episodeGridHTML = '';
 
@@ -711,7 +849,6 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
             ${episodeGridHTML}
           `;
 
-          // Setup Selector Event Listeners
           if (dubsSelectHTML) {
             const dubSelect = document.getElementById('dub-select');
             if (dubSelect) {
@@ -764,15 +901,13 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         console.error('Error rendering selectors:', err);
       }
 
-      // Fetch recommendations from a random category
+      // Load Recommendations
       const loadRecommendations = async () => {
         try {
-          const allCats = ['bollywood', 'south-hindi', 'hollywood', 'anime', 'k-drama', 'c-drama', 'reality-tv', 'action', 'romance', 'horror'];
+          const allCats = ['bollywood', 'south-hindi', 'hollywood', 'anime', 'k-drama', 'c-drama', 'reality-tv'];
           const recCat = allCats[Math.floor(Math.random() * allCats.length)];
-          const recRes = await fetch(`/api/data?category=${encodeURIComponent(recCat)}`);
-          const recData = await recRes.json();
+          const recData = await apiCache.fetch(`/api/data?category=${encodeURIComponent(recCat)}`);
           if (recData.success && recData.data && recData.data.length > 0) {
-            // Shuffle the results for variety
             const shuffled = recData.data.filter(item => item.slug !== slug).sort(() => Math.random() - 0.5).slice(0, 12);
             if (shuffled.length > 0) {
               const recSection = document.getElementById('recommended-section');
@@ -780,22 +915,21 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
               recTrack.innerHTML = '';
               
               shuffled.forEach(item => {
-                const card = createMovieCard(item);
+                const card = cardPool.createNewCardNode();
+                cardPool.populate(card, item);
                 recTrack.appendChild(card);
               });
               
               recSection.style.display = 'block';
 
-              // Attach slider arrow event listeners
-              document.getElementById('rec-prev-btn').addEventListener('click', () => {
+              document.getElementById('rec-prev-btn').onclick = () => {
                 recTrack.scrollBy({ left: -300, behavior: 'smooth' });
-              });
-              document.getElementById('rec-next-btn').addEventListener('click', () => {
+              };
+              document.getElementById('rec-next-btn').onclick = () => {
                 recTrack.scrollBy({ left: 300, behavior: 'smooth' });
-              });
+              };
 
-              // Attach View All listener
-              document.getElementById('rec-view-all-btn').addEventListener('click', () => {
+              document.getElementById('rec-view-all-btn').onclick = () => {
                 closeModal(true);
                 const categories = categoryList.querySelectorAll('li');
                 categories.forEach(li => {
@@ -807,7 +941,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
                 });
                 resetCategoryFilter(recCat, recCat.charAt(0).toUpperCase() + recCat.slice(1).replace('-', ' '));
                 loadMovies();
-              });
+              };
             }
           }
         } catch (recErr) {
@@ -816,14 +950,14 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
       };
       loadRecommendations();
 
-      // Truncate description on mobile view if it's too long
+      // Expandable plot details
       const descContainer = modalBody.querySelector('.details-desc-container');
       const descText = modalBody.querySelector('.details-desc');
       const readMoreBtn = modalBody.querySelector('#desc-read-more-btn');
       if (descContainer && descText && readMoreBtn && descText.textContent.length > 180) {
         descContainer.classList.add('truncated');
         readMoreBtn.style.display = 'inline-block';
-        readMoreBtn.addEventListener('click', () => {
+        readMoreBtn.onclick = () => {
           if (descContainer.classList.contains('truncated')) {
             descContainer.classList.remove('truncated');
             readMoreBtn.innerText = 'View Less';
@@ -831,7 +965,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
             descContainer.classList.add('truncated');
             readMoreBtn.innerText = 'View More';
           }
-        });
+        };
       }
 
     } else {
@@ -855,8 +989,7 @@ async function updatePlayerSource(slug, season, episode, subjectid, title, dp) {
     if (subjectid && title && dp) {
       url += `&subjectid=${encodeURIComponent(subjectid)}&title=${encodeURIComponent(title)}&dp=${encodeURIComponent(dp)}`;
     }
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await apiCache.fetch(url);
     if (data.success && data.videoUrl) {
       iframe.src = data.videoUrl + "&_cb=" + Date.now();
     }
@@ -877,7 +1010,7 @@ function closeModal(updateHash = true) {
   document.body.style.overflow = '';
   modalBody.innerHTML = '';
   if (updateHash) {
-    window.location.hash = ''; // Clear hash route
+    window.location.hash = '';
   }
 }
 
@@ -888,10 +1021,15 @@ function resetState() {
   currentQuery = '';
   searchInput.value = '';
   filterBanner.style.display = 'none';
+  
+  // Release active movie cards
+  const activeCards = Array.from(moviesGrid.querySelectorAll('.movie-card'));
+  activeCards.forEach(c => cardPool.release(c));
+  moviesGrid.innerHTML = '';
+
   loadedMovies = [];
   displayedCount = 0;
 
-  // Reset category sidebar active states to hollywood
   const categories = categoryList.querySelectorAll('li');
   categories.forEach(li => {
     li.classList.remove('active');

@@ -2,12 +2,52 @@ export const config = {
   runtime: 'edge',
 };
 
+const ALLOWED_CDN_DOMAINS = [
+  'pacdn.aoneroom.com',
+  'spedostream2.shop',
+  'imb.hair',
+  'netmirror.global',
+  'netmirror.hair',
+  'fmoviesunblocked.net',
+  'via.placeholder.com',
+  'hakunaymatata.com',
+  'spedostream.com',
+  'spedostream.shop',
+  'spedostream2.com',
+];
+
+function isValidProxyUrl(targetUrl) {
+  try {
+    const parsed = new URL(targetUrl);
+    const hostname = parsed.hostname;
+    // SSRF Prevention: block local/private IPs and loopbacks
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('172.') ||
+      hostname.startsWith('169.254.')
+    ) {
+      return false;
+    }
+    // Allowlist check
+    return ALLOWED_CDN_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
+  } catch (e) {
+    return false;
+  }
+}
+
 export default async function handler(req) {
   try {
     const { searchParams } = new URL(req.url);
     const imageUrl = searchParams.get('url');
     if (!imageUrl) {
       return new Response('url parameter is required', { status: 400 });
+    }
+
+    if (!isValidProxyUrl(imageUrl)) {
+      return new Response('Forbidden: Target URL is not allowed', { status: 403 });
     }
 
     const response = await fetch(imageUrl, {
