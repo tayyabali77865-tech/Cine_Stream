@@ -56,7 +56,9 @@ export default async function handler(req, res) {
     const response = await fetchWithRetry(fetchUrl, { headers });
 
     if (!response.ok) {
-      return res.status(response.status).send(`Proxy error: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      console.error(`[player-proxy] Worker responded with status ${response.status}: "${errorBody}"`);
+      return res.status(response.status || 502).send(`Proxy error: HTTP ${response.status} — ${errorBody || 'No response body'}`);
     }
 
     // Forward Set-Cookie headers from target server to client browser to propagate the session
@@ -137,15 +139,15 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    let proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
-    if (proxyUrl && !proxyUrl.startsWith('http://') && !proxyUrl.startsWith('https://') && !proxyUrl.startsWith('/')) {
-      proxyUrl = `https://${proxyUrl}`;
-    }
+    // Always use our own Vercel Edge video-proxy for the video stream.
+    // Cloudflare Worker IPs are blocked by the video CDN (hakunaymatata.com runs on Cloudflare
+    // and blocks other Cloudflare Workers IPs). Vercel Edge avoids this conflict.
+    const videoProxyUrl = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
         return play_url;
       }
-      return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
+      return "${videoProxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
 
     const extraStyles = `
       <style>
