@@ -284,13 +284,47 @@ app.get('/api/player-proxy', async (req, res) => {
         };
 
         // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
+        // Also attach a smart error handler to detect download-only / format errors
         document.addEventListener('DOMContentLoaded', () => {
-          const observer = new MutationObserver((mutations) => {
+          const observer = new MutationObserver(() => {
             const video = document.querySelector('video');
-            if (video) {
+            if (video && !video._cineErrorPatched) {
+              video._cineErrorPatched = true;
               video.setAttribute('referrerpolicy', 'no-referrer');
               video.removeAttribute('crossorigin');
-              console.log('Applied no-referrer to video element successfully');
+              console.log('[CineStream] Applied no-referrer to video element');
+
+              video.addEventListener('error', async function() {
+                const mediaErr = video.error;
+                if (!mediaErr) return;
+                const src = video.currentSrc || video.src || '';
+                console.warn('[CineStream] Video error code:', mediaErr.code, 'src:', src.substring(0, 80));
+
+                // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                if ((mediaErr.code === 4 || mediaErr.code === 2) && src && src.includes('streamUrl=')) {
+                  // Check if the proxy URL is returning a download-only or non-video response
+                  try {
+                    const r = await fetch(src, { method: 'GET', headers: { 'Range': 'bytes=0-1023' } });
+                    if (r.status === 422) {
+                      const data = await r.json().catch(() => null);
+                      if (data && data.type === 'download_only' && data.download_page) {
+                        document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0b0f19;color:#94a3b8;font-family:Inter,sans-serif;gap:12px;text-align:center;padding:20px"><div style="font-size:48px">&#128229;</div><p style="font-size:14px;max-width:320px">This video is download-only (MKV format).</p><a href="' + data.download_page + '" target="_blank" rel="noopener" style="display:inline-block;padding:10px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;">&#11015; Open Download Page</a></div>';
+                        return;
+                      }
+                    }
+                    // Check content-type
+                    const ct = r.headers.get('content-type') || '';
+                    const finalUrl = r.url;
+                    const nonPlayable = ['.mkv', '.avi', '.wmv', '.flv'];
+                    const isBadFormat = nonPlayable.some(ext => finalUrl.toLowerCase().split('?')[0].endsWith(ext));
+                    if (isBadFormat || ct.includes('text/html')) {
+                      document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0b0f19;color:#94a3b8;font-family:Inter,sans-serif;gap:12px;text-align:center;padding:20px"><div style="font-size:48px">&#128229;</div><p style="font-size:14px;max-width:320px">This video format cannot be played in the browser. Please try another server.</p></div>';
+                    }
+                  } catch(e) {
+                    console.warn('[CineStream] Error check failed:', e.message);
+                  }
+                }
+              });
               observer.disconnect();
             }
           });

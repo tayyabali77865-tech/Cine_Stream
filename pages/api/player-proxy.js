@@ -110,9 +110,11 @@ function buildInlinePlayer(proxiedVideoUrl) {
     });
   }
 
-  // Check if the proxy returns a 422 download_only response before attempting to play
-  fetch(videoUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' } })
+  // Pre-check the proxy URL before giving it to artplayer
+  // This catches: 422 download_only, MKV redirects, HTML pages served as video
+  fetch(videoUrl, { method: 'GET', headers: { 'Range': 'bytes=0-1023' } })
     .then(function(r) {
+      // 422 = download-only content (filesdl.top MKV, etc.)
       if (r.status === 422) {
         return r.json().then(function(data) {
           if (data && data.type === 'download_only' && data.download_page) {
@@ -120,10 +122,29 @@ function buildInlinePlayer(proxiedVideoUrl) {
           } else {
             showError();
           }
-        });
+        }).catch(showError);
       }
-      // For redirects (302) or successful responses — init the player normally
-      // The browser will follow redirects and load the actual URL
+
+      // Check content-type of the actual response (after following redirects)
+      var ct = r.headers.get('content-type') || '';
+      var finalUrl = r.url; // URL after following all redirects
+
+      // If response is HTML or JSON — it's not a video stream
+      if (ct.includes('text/html') || ct.includes('application/json')) {
+        console.warn('[player] Proxy returned non-video content-type:', ct);
+        showError();
+        return;
+      }
+
+      // Check if the final URL (after redirect) has a non-playable extension
+      if (!isPlayableInBrowser(finalUrl)) {
+        console.warn('[player] Final URL is non-playable format:', finalUrl);
+        showDownloadPage(finalUrl);
+        return;
+      }
+
+      // All checks passed — init the player with the original proxy URL
+      // (browser will follow redirects automatically for video element)
       initPlayer(videoUrl);
     })
     .catch(function(e) {
