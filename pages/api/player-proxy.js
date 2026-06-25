@@ -146,9 +146,25 @@ export default async function handler(req, res) {
     const localOrigin = `${proto}://${host}`;
 
     // Inject AdBlock bypass script and base tag
-    // Use successUrl (actual domain that responded) for correct base href
-    const parsedUrl = new URL(successUrl || url);
-    const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
+    // ALWAYS use the ORIGINAL domain for base href — fallback domains (netmirror.global etc.)
+    // don't send CORS headers, causing ERR_FAILED for module scripts.
+    // spedostream2.shop / the original domain serves the same player assets WITH CORS headers.
+    const parsedOriginal = new URL(url);
+    const originalOrigin = `${parsedOriginal.protocol}//${parsedOriginal.host}`;
+    const baseHref = `${originalOrigin}/play/`;
+
+    // If we fell back to a different domain, rewrite all absolute URLs in the HTML
+    // from the fallback domain back to the original domain so assets load with CORS headers.
+    if (successUrl) {
+      const parsedSuccess = new URL(successUrl);
+      const fallbackOrigin = `${parsedSuccess.protocol}//${parsedSuccess.host}`;
+      if (fallbackOrigin !== originalOrigin) {
+        // Replace all occurrences of the fallback domain with the original domain
+        const escapedFallback = fallbackOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        html = html.replace(new RegExp(escapedFallback, 'g'), originalOrigin);
+        console.log(`[player-proxy] Rewrote asset URLs from ${fallbackOrigin} → ${originalOrigin}`);
+      }
+    }
     const adblockBypassScript = `
       <script>
         window.adblock = false;
