@@ -138,7 +138,14 @@ app.get('/api/player-proxy', async (req, res) => {
       headers['Cookie'] = req.headers.cookie;
     }
 
-    const workerUrl = process.env.CLOUDFLARE_WORKER_URL || 'https://cine-stream-proxy.tayyabali77865.workers.dev/';
+    let workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    if (!workerUrl) {
+      console.error('[server] CLOUDFLARE_WORKER_URL is missing in environment variables');
+      return res.status(500).send('Cloudflare Worker URL is not configured. Please check your environment variables.');
+    }
+    if (!workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
+      workerUrl = `https://${workerUrl}`;
+    }
     const fetchUrl = `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent('https://netmirror.global/')}`;
     const response = await fetchWithRetry(fetchUrl, { headers });
 
@@ -262,6 +269,20 @@ app.get('/api/player-proxy', async (req, res) => {
           checkCount++;
         }, 50);
 
+        // Patch HTMLMediaElement.play() to suppress AbortError from autoplay policy race condition.
+        // This prevents artplayer from crashing with "play() was interrupted by a call to pause()".
+        const _origPlay = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function() {
+          return _origPlay.apply(this, arguments).catch(function(e) {
+            if (e && e.name === 'AbortError') {
+              // Silently ignore — browser autoplay policy blocked the play attempt.
+              // The player UI (big play button) handles user-initiated playback.
+              return;
+            }
+            throw e; // Re-throw any other errors
+          });
+        };
+
         // Force no-referrer referrerpolicy on video elements to bypass CDN hotlink protections
         document.addEventListener('DOMContentLoaded', () => {
           const observer = new MutationObserver((mutations) => {
@@ -291,13 +312,44 @@ app.get('/api/player-proxy', async (req, res) => {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Fix resolution switching by making play_url return the absolute proxy URL
-    const proxyUrl = process.env.CLOUDFLARE_WORKER_URL || `${localOrigin}/api/video-proxy`;
+    // Fix resolution switching — smart routing:
+    // hakunaymatata.com blocks Cloudflare IPs → route through Vercel /api/video-proxy
+    // All other CDNs → route through Cloudflare Worker
+    let cfWorkerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    if (!cfWorkerUrl) {
+      console.error('[server] CLOUDFLARE_WORKER_URL is missing in environment variables');
+      return res.status(500).send('Cloudflare Worker URL is not configured. Please check your environment variables.');
+    }
+    if (!cfWorkerUrl.startsWith('http://') && !cfWorkerUrl.startsWith('https://')) {
+      cfWorkerUrl = `https://${cfWorkerUrl}`;
+    }
+    const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
         return play_url;
       }
-      return "${proxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
+      // Check if the signed URL has an expired t= timestamp (hakunaymatata CDN)
+      try {
+        const urlObj = new URL(play_url);
+        const tParam = urlObj.searchParams.get('t');
+        if (tParam) {
+          const urlTs = parseInt(tParam, 10);
+          const nowTs = Math.floor(Date.now() / 1000);
+          const ageMin = Math.round((nowTs - urlTs) / 60);
+          if (nowTs - urlTs > 3600) {
+            console.warn('[STREAM ROUTE] URL expired by ' + ageMin + ' min, reloading player for fresh signed URL...');
+            // Reload the iframe to get a fresh signed URL from the CDN
+            setTimeout(function() { window.location.reload(); }, 100);
+            return play_url; // return original while reload happens
+          }
+        }
+      } catch(e) {}
+      const isHakuna = play_url.includes('hakunaymatata.com');
+      const finalVideoUrl = isHakuna
+        ? "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url)
+        : "${cfWorkerUrl}?streamUrl=" + encodeURIComponent(play_url);
+      console.log("[STREAM ROUTE]", isHakuna ? '[Vercel]' : '[CF Worker]', finalVideoUrl);
+      return finalVideoUrl; `);
 
     const extraStyles = `
       <style>
@@ -368,7 +420,7 @@ app.get('/api/player-proxy', async (req, res) => {
 
 // CDN hostname → trusted Referer/Origin map
 const CDN_REFERER_MAP = [
-  { pattern: 'hakunaymatata.com', referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
+  { pattern: 'hakunaymatata.com', referer: 'https://fmoviesunblocked.net/', origin: null },
   { pattern: 'megacloud',         referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
   { pattern: 'rapid-cloud',       referer: 'https://rapid-cloud.co/', origin: 'https://rapid-cloud.co' },
   { pattern: 'netmirror',         referer: 'https://netmirror.global/', origin: 'https://netmirror.global' },

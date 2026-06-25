@@ -126,6 +126,42 @@ export default async function handler(req) {
       return new Response(null, { status: response.status || 404 });
     }
 
+    // Detect if CDN returned HTML (download page) instead of a video stream (e.g. filesdl.top)
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      const html = await response.text();
+      // Only extract streamable formats (MP4/WebM) — MKV not playable in browser
+      const mp4Match = html.match(/https:\/\/[^"'<>\s]+\.(mp4|webm)(\?[^"'<>\s]*)?/i);
+      const streamableUrl = (mp4Match && mp4Match[0] &&
+                             !mp4Match[0].toLowerCase().includes('.mkv') &&
+                             !mp4Match[0].toLowerCase().includes('.avi'))
+                            ? mp4Match[0] : null;
+
+      if (streamableUrl) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            'Location': streamableUrl,
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store',
+          },
+        });
+      }
+      // MKV/download-only — return JSON so player can show download option
+      return new Response(JSON.stringify({
+        type: 'download_only',
+        message: 'This content is download-only (MKV/non-streamable format)',
+        download_page: streamUrl,
+      }), {
+        status: 422,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
     const responseHeaders = new Headers({
       'Content-Type': response.headers.get('content-type') || 'video/mp4',
       'Accept-Ranges': 'bytes',

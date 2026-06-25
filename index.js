@@ -77,14 +77,38 @@ export default {
       let redirectsFollowed = 0;
       let response;
 
+      const CDN_REFERER_MAP = [
+        { pattern: 'hakunaymatata.com', referer: 'https://fmoviesunblocked.net/', origin: null },
+        { pattern: 'megacloud',         referer: 'https://megacloud.club/', origin: 'https://megacloud.club' },
+        { pattern: 'rapid-cloud',       referer: 'https://rapid-cloud.co/', origin: 'https://rapid-cloud.co' },
+        { pattern: 'netmirror',         referer: 'https://netmirror.global/', origin: 'https://netmirror.global' },
+      ];
+
       while (redirectsFollowed < 5) {
+        let cdnReferer = "https://fmoviesunblocked.net/";
+        let cdnOrigin = null;
+        try {
+          const hostname = new URL(currentUrl).hostname;
+          for (const entry of CDN_REFERER_MAP) {
+            if (hostname.includes(entry.pattern)) {
+              cdnReferer = entry.referer;
+              cdnOrigin = entry.origin;
+              break;
+            }
+          }
+        } catch (e) {}
+
         const fetchHeaders = new Headers({
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           "Range": rangeHeader,
-          "Referer": "https://fmoviesunblocked.net/",
+          "Referer": cdnReferer,
           "Accept": "*/*",
           "Accept-Language": "en-US,en;q=0.9",
         });
+
+        if (cdnOrigin) {
+          fetchHeaders.set("Origin", cdnOrigin);
+        }
 
         response = await fetch(currentUrl, {
           method: request.method,
@@ -105,6 +129,53 @@ export default {
       if (!response || (!response.ok && response.status !== 206)) {
         return new Response("Failed to fetch stream", {
           status: response?.status || 502,
+        });
+      }
+
+      // 3. Detect if CDN returned an HTML page instead of video (e.g. filesdl.top download pages)
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("text/html")) {
+        // Parse the HTML to extract a direct video/download URL
+        const html = await response.text();
+        
+        // Priority 1: Cloudflare R2 direct link (r2.dev) with full query string
+        const r2Match = html.match(/https:\/\/[^"'<>\s]+\.r2\.dev\/[^"'<>\s]+/);
+        // Priority 2: Any direct mp4/webm URL (streamable)
+        const mp4Match = html.match(/https:\/\/[^"'<>\s]+\.(mp4|webm)(\?[^"'<>\s]*)?/i);
+        
+        // Only use direct URL if it ends in a streamable format (MP4/WebM)
+        // MKV/AVI etc. are NOT streamable in browsers — send user to download page instead
+        const streamableUrl = (mp4Match && mp4Match[0] && 
+                               !mp4Match[0].toLowerCase().includes('.mkv') &&
+                               !mp4Match[0].toLowerCase().includes('.avi')) 
+                              ? mp4Match[0] 
+                              : null;
+        
+        if (streamableUrl) {
+          // Redirect client to the direct streamable URL
+          return new Response(null, {
+            status: 302,
+            headers: {
+              "Location": streamableUrl,
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "no-store",
+            },
+          });
+        }
+        
+        // No streamable URL found (MKV/download-only content)
+        // Return JSON so the frontend can show a download page link
+        return new Response(JSON.stringify({
+          type: "download_only",
+          message: "This content is download-only (MKV/non-streamable format)",
+          download_page: decodedStreamUrl,
+        }), {
+          status: 422,
+          headers: { 
+            "Content-Type": "application/json", 
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+          },
         });
       }
 

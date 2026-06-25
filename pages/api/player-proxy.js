@@ -42,25 +42,94 @@ function buildInlinePlayer(proxiedVideoUrl) {
 <body>
 <div id="art"></div>
 <script>
-  var art = new Artplayer({
-    container: '#art',
-    url: ${JSON.stringify(proxiedVideoUrl)},
-    autoplay: true,
-    volume: 0.8,
-    setting: true,
-    playbackRate: true,
-    aspectRatio: true,
-    fullscreen: true,
-    fullscreenWeb: false,
-    miniProgressBar: true,
-    mutex: true,
-    theme: '#6366f1',
-    lang: 'en',
-  });
+  var videoUrl = ${JSON.stringify(proxiedVideoUrl)};
+  
+  // Detect non-browser-playable formats (MKV, AVI, etc.)
+  function isPlayableInBrowser(url) {
+    var lower = url.toLowerCase().split('?')[0];
+    var nonPlayable = ['.mkv', '.avi', '.wmv', '.flv', '.mov', '.ts', '.vob'];
+    return !nonPlayable.some(function(ext) { return lower.endsWith(ext); });
+  }
 
-  art.on('error', function(error) {
+  function showDownloadPage(downloadPageUrl) {
+    document.getElementById('art').style.display = 'none';
+    document.body.innerHTML = '<div class="error"><div class="icon">&#128229;</div>' +
+      '<p>This video is only available as a download (MKV format). Click the button below to open the download page.</p>' +
+      '<a href="' + downloadPageUrl + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:12px;padding:10px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-family:Inter,sans-serif;">&#11015; Open Download Page</a></div>';
+  }
+
+  function showError() {
     document.body.innerHTML = '<div class="error"><div class="icon">&#127916;</div><p>Video could not be loaded. Try another server button above the player.</p></div>';
-  });
+  }
+
+  function initPlayer(url) {
+    if (!isPlayableInBrowser(url)) {
+      showDownloadPage(url);
+      return;
+    }
+    var art = new Artplayer({
+      container: '#art',
+      url: url,
+      autoplay: false,
+      muted: false,
+      volume: 0.8,
+      setting: true,
+      playbackRate: true,
+      aspectRatio: true,
+      fullscreen: true,
+      fullscreenWeb: false,
+      miniProgressBar: true,
+      mutex: true,
+      theme: '#6366f1',
+      lang: 'en',
+    });
+
+    var _origPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function() {
+      return _origPlay.apply(this, arguments).catch(function(e) {
+        if (e && e.name === 'AbortError') { return; }
+        throw e;
+      });
+    };
+
+    art.on('ready', function() {
+      art.muted = true;
+      art.play().then(function() {
+        setTimeout(function() { art.muted = false; }, 100);
+      }).catch(function(e) {
+        art.muted = false;
+        console.log('[player] Autoplay blocked, waiting for user interaction:', e.message);
+      });
+    });
+
+    art.on('error', function(error, reconnectTime) {
+      console.error('[player] Video error:', error);
+      if (!reconnectTime || reconnectTime > 3) {
+        showError();
+      }
+    });
+  }
+
+  // Check if the proxy returns a 422 download_only response before attempting to play
+  fetch(videoUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' } })
+    .then(function(r) {
+      if (r.status === 422) {
+        return r.json().then(function(data) {
+          if (data && data.type === 'download_only' && data.download_page) {
+            showDownloadPage(data.download_page);
+          } else {
+            showError();
+          }
+        });
+      }
+      // For redirects (302) or successful responses — init the player normally
+      // The browser will follow redirects and load the actual URL
+      initPlayer(videoUrl);
+    })
+    .catch(function(e) {
+      console.warn('[player] Pre-check failed, attempting playback anyway:', e.message);
+      initPlayer(videoUrl);
+    });
 </script>
 </body>
 </html>`;
@@ -103,6 +172,16 @@ export default async function handler(req, res) {
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
 
+    let workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    if (!workerUrl) {
+      console.error('[player-proxy] CLOUDFLARE_WORKER_URL is missing in environment variables');
+      res.setHeader('Content-Type', 'text/html');
+      return res.status(500).send(errorPage('Cloudflare Worker URL is not configured. Please check your environment variables.'));
+    }
+    if (!workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
+      workerUrl = `https://${workerUrl}`;
+    }
+
     const host = req.headers.host || 'localhost:3000';
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const localOrigin = `${proto}://${host}`;
@@ -143,9 +222,33 @@ export default async function handler(req, res) {
           console.log(`[player-proxy] watchflmy fast path: decoded video URL = ${decodedVideoUrl}`);
 
           if (decodedVideoUrl.startsWith('http')) {
-            const proxiedVideoUrl = `${localOrigin}/api/video-proxy?streamUrl=${encodeURIComponent(decodedVideoUrl)}`;
-            res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(buildInlinePlayer(proxiedVideoUrl));
+            // Check if the signed URL has an expired timestamp
+            let urlExpired = false;
+            try {
+              const decodedParsed = new URL(decodedVideoUrl);
+              const tParam = decodedParsed.searchParams.get('t');
+              if (tParam) {
+                const urlTimestamp = parseInt(tParam, 10);
+                const nowTimestamp = Math.floor(Date.now() / 1000);
+                const ageSeconds = nowTimestamp - urlTimestamp;
+                if (ageSeconds > 3600) { // Expired if older than 1 hour
+                  console.warn(`[player-proxy] watchflmy URL expired (age: ${Math.round(ageSeconds/60)}min), falling back to full player fetch for fresh URL`);
+                  urlExpired = true;
+                }
+              }
+            } catch (e) {}
+
+            if (!urlExpired) {
+              // hakunaymatata.com blocks Cloudflare IPs — route through Vercel proxy instead
+              const isHakuna = decodedVideoUrl.includes('hakunaymatata.com');
+              const proxiedVideoUrl = isHakuna
+                ? `${localOrigin}/api/video-proxy?streamUrl=${encodeURIComponent(decodedVideoUrl)}`
+                : `${workerUrl}?streamUrl=${encodeURIComponent(decodedVideoUrl)}`;
+              console.log("[STREAM ROUTE]", isHakuna ? '[Vercel]' : '[CF Worker]', proxiedVideoUrl);
+              res.setHeader('Content-Type', 'text/html');
+              return res.status(200).send(buildInlinePlayer(proxiedVideoUrl));
+            }
+            // If expired, fall through to the full player fetch below
           }
         }
       }
@@ -162,11 +265,6 @@ export default async function handler(req, res) {
 
     if (req.headers.cookie) {
       headers['Cookie'] = req.headers.cookie;
-    }
-
-    let workerUrl = process.env.CLOUDFLARE_WORKER_URL;
-    if (workerUrl && !workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
-      workerUrl = `https://${workerUrl}`;
     }
 
     // --- Multi-domain fallback chain ---
@@ -257,10 +355,32 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
 
-    const videoProxyUrl = `${localOrigin}/api/video-proxy`;
+    // Smart routing: hakunaymatata.com blocks Cloudflare IPs → use Vercel proxy
+    // All other CDNs → use Cloudflare Worker
+    const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) { return play_url; }
-      return "${videoProxyUrl}?streamUrl=" + encodeURIComponent(play_url); `);
+      // Check if the signed URL has an expired t= timestamp
+      try {
+        const urlObj = new URL(play_url);
+        const tParam = urlObj.searchParams.get('t');
+        if (tParam) {
+          const urlTs = parseInt(tParam, 10);
+          const nowTs = Math.floor(Date.now() / 1000);
+          const ageMin = Math.round((nowTs - urlTs) / 60);
+          if (nowTs - urlTs > 3600) {
+            console.warn('[STREAM ROUTE] URL expired by ' + ageMin + ' min, reloading player for fresh signed URL...');
+            setTimeout(function() { window.location.reload(); }, 100);
+            return play_url;
+          }
+        }
+      } catch(e) {}
+      const isHakuna = play_url.includes('hakunaymatata.com');
+      const finalVideoUrl = isHakuna
+        ? "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url)
+        : "${workerUrl}?streamUrl=" + encodeURIComponent(play_url);
+      console.log("[STREAM ROUTE]", isHakuna ? '[Vercel]' : '[CF Worker]', finalVideoUrl);
+      return finalVideoUrl; `);
 
     const extraStyles = `
       <style>
