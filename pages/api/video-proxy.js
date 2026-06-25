@@ -14,6 +14,7 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
+  'spedostream2.shop'
 ];
 
 function isPrivateIp(ip) {
@@ -50,7 +51,7 @@ function isValidProxyUrl(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
     const hostname = parsed.hostname.toLowerCase();
-    
+
     if (
       isPrivateIp(hostname) ||
       hostname.endsWith('.local') ||
@@ -58,7 +59,7 @@ function isValidProxyUrl(targetUrl) {
     ) {
       return false;
     }
-    
+
     // Allowlist check
     return ALLOWED_CDN_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
   } catch (e) {
@@ -104,15 +105,15 @@ export default async function handler(req) {
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
         if (!location) break;
-        
+
         // Resolve dynamic redirect location relative to current URL
         const nextUrl = new URL(location, currentUrl).toString();
-        
+
         // Strictly validate redirect target
         if (!isValidProxyUrl(nextUrl)) {
           return new Response('Forbidden: Redirect target is not allowed', { status: 403 });
         }
-        
+
         currentUrl = nextUrl;
         redirectsFollowed++;
       } else {

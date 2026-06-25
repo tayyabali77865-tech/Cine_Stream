@@ -1,15 +1,50 @@
 const crypto = require('crypto');
 
-async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      return response;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
+// Player domain fallbacks — tried in order when primary returns 404/5xx
+const PLAYER_FALLBACK_DOMAINS = [
+  'spedostream2.shop',
+  'netmirror.global',
+  'netmirror.hair',
+  'imb.hair',
+  'fmoviesunblocked.net',
+];
+
+function buildFallbackUrl(originalUrl, newDomain) {
+  try {
+    const u = new URL(originalUrl);
+    u.hostname = newDomain;
+    return u.toString();
+  } catch {
+    return null;
   }
+}
+
+function errorPage(message) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video Unavailable</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0b0f19;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:Inter,sans-serif}
+  .box{text-align:center;padding:40px 32px;max-width:420px}
+  .icon{font-size:56px;margin-bottom:16px}
+  h2{color:#fff;font-size:22px;font-weight:700;margin-bottom:10px}
+  p{color:#94a3b8;font-size:14px;line-height:1.7}
+  .code{display:inline-block;margin-top:16px;padding:4px 12px;background:#1e293b;border-radius:6px;color:#f87171;font-size:12px;font-family:monospace}
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">🎬</div>
+    <h2>Video Unavailable</h2>
+    <p>This video could not be loaded. The file may have expired or been removed from the CDN.</p>
+    <span class="code">${message}</span>
+  </div>
+</body>
+</html>`;
 }
 
 export default async function handler(req, res) {
@@ -27,6 +62,7 @@ export default async function handler(req, res) {
     const sig = crypto.createHmac('sha256', 'net###@@sss').update(String(ts)).digest('hex');
 
     let targetUrl = url;
+    console.log("ORIGINAL URL:", url);
     if (targetUrl.includes('ts=')) {
       targetUrl = targetUrl.replace(/ts=\d+/g, `ts=${ts}`);
     } else {
@@ -52,13 +88,41 @@ export default async function handler(req, res) {
     if (workerUrl && !workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
       workerUrl = `https://${workerUrl}`;
     }
-    const fetchUrl = workerUrl ? `${workerUrl}?playerUrl=${encodeURIComponent(targetUrl)}` : targetUrl;
-    const response = await fetchWithRetry(fetchUrl, { headers });
+    console.log("FINAL TARGET URL:", targetUrl);
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      console.error(`[player-proxy] Worker responded with status ${response.status}: "${errorBody}"`);
-      return res.status(response.status || 502).send(`Proxy error: HTTP ${response.status} — ${errorBody || 'No response body'}`);
+    // --- Multi-domain fallback chain ---
+    // If primary domain 404s, try each fallback domain with the same path/query
+    let response = null;
+    let successUrl = null;
+
+    for (const domain of PLAYER_FALLBACK_DOMAINS) {
+      const candidateUrl = buildFallbackUrl(targetUrl, domain);
+      if (!candidateUrl) continue;
+
+      const fetchUrl = workerUrl
+        ? `${workerUrl}?playerUrl=${encodeURIComponent(candidateUrl)}`
+        : candidateUrl;
+
+      try {
+        const r = await fetch(fetchUrl, { headers });
+        if (r.ok) {
+          response = r;
+          successUrl = candidateUrl;
+          console.log(`[player-proxy] Success via domain: ${domain}`);
+          break;
+        } else {
+          console.warn(`[player-proxy] ${domain} returned ${r.status}, trying next...`);
+        }
+      } catch (err) {
+        console.warn(`[player-proxy] ${domain} network error: ${err.message}, trying next...`);
+      }
+    }
+
+    if (!response || !response.ok) {
+      // All fallbacks exhausted — show styled error page
+      console.error('[player-proxy] All fallback domains failed for:', targetUrl);
+      res.setHeader('Content-Type', 'text/html');
+      return res.status(200).send(errorPage('Video Unavailable — CDN 404'));
     }
 
     // Forward Set-Cookie headers from target server to client browser to propagate the session
@@ -81,7 +145,8 @@ export default async function handler(req, res) {
     const localOrigin = `${proto}://${host}`;
 
     // Inject AdBlock bypass script and base tag
-    const parsedUrl = new URL(url);
+    // Use successUrl (actual domain that responded) for correct base href
+    const parsedUrl = new URL(successUrl || url);
     const baseHref = `${parsedUrl.protocol}//${parsedUrl.host}/play/`;
     const adblockBypassScript = `
       <script>
