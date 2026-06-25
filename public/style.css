@@ -17,20 +17,26 @@
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--bg-primary);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--accent-gradient);
   border-radius: 10px;
   border: 2px solid var(--bg-primary);
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-hover);
 }
 
 /* Ensure consistent font application */
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font-family: 'Outfit', sans-serif !important;
 }
 
@@ -346,10 +352,10 @@ a {
   right: 12px;
   /* Green for movie */
   color: white;
- 
+
   font-size: 0.75rem;
   font-weight: 700;
-  
+
 }
 
 
@@ -1121,8 +1127,10 @@ a {
   align-items: center;
   z-index: 100;
 }
+
 .player-container {
-  position: relative; /* ensure overlay coordinates correctly */
+  position: relative;
+  /* ensure overlay coordinates correctly */
 }
 
 /* Recommended Section Styling */
@@ -1211,7 +1219,7 @@ a {
   justify-content: center;
   transition: var(--transition-smooth);
   z-index: 10;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
 }
 
 .slider-arrow:hover {
@@ -1239,20 +1247,25 @@ a {
     height: 32px;
     font-size: 0.8rem;
   }
+
   .slider-arrow.prev {
     left: -10px;
   }
+
   .slider-arrow.next {
     right: -10px;
   }
+
   .recommended-section .movie-card {
     flex: 0 0 160px !important;
     max-width: 160px !important;
   }
+
   .recommended-section {
     margin-top: 30px;
     padding-top: 20px;
   }
+
   .recommended-header h3 {
     font-size: 1.1rem;
   }
@@ -1265,6 +1278,7 @@ a {
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
   .btn-read-more {
     display: inline-block !important;
     background: none;
@@ -1281,6 +1295,7 @@ a {
   .footer-divider {
     display: none !important;
   }
+
   .footer-rights {
     display: block !important;
     margin-top: 6px;
@@ -1298,8 +1313,13 @@ a {
 }
 
 @keyframes imgFadeIn {
-  from { opacity: 0.4; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0.4;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .movie-card {

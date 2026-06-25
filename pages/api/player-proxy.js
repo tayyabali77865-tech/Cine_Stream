@@ -40,7 +40,7 @@ function errorPage(message) {
   <div class="box">
     <div class="icon">🎬</div>
     <h2>Video Unavailable</h2>
-    <p>This video could not be loaded. The file may have expired or been removed from the CDN.</p>
+    <p>This video could not be loaded from any server. The file may have been removed from the CDN. Try another server button above.</p>
     <span class="code">${message}</span>
   </div>
 </body>
@@ -88,10 +88,11 @@ export default async function handler(req, res) {
     if (workerUrl && !workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
       workerUrl = `https://${workerUrl}`;
     }
+
     console.log("FINAL TARGET URL:", targetUrl);
 
     // --- Multi-domain fallback chain ---
-    // If primary domain 404s, try each fallback domain with the same path/query
+    // If primary domain 404s, automatically try each fallback domain with the same path/query
     let response = null;
     let successUrl = null;
 
@@ -119,13 +120,13 @@ export default async function handler(req, res) {
     }
 
     if (!response || !response.ok) {
-      // All fallbacks exhausted — show styled error page
+      // All fallbacks exhausted — show styled error page (no raw HTML dump)
       console.error('[player-proxy] All fallback domains failed for:', targetUrl);
       res.setHeader('Content-Type', 'text/html');
-      return res.status(200).send(errorPage('Video Unavailable — CDN 404'));
+      return res.status(200).send(errorPage('All CDN servers returned 404'));
     }
 
-    // Forward Set-Cookie headers from target server to client browser to propagate the session
+    // Forward Set-Cookie headers from target server to client browser
     const setCookieHeaders = response.headers.getSetCookie
       ? response.headers.getSetCookie()
       : response.headers.get('set-cookie');
@@ -136,7 +137,7 @@ export default async function handler(req, res) {
 
     let html = await response.text();
 
-    // Strip any Content-Security-Policy meta tags returned by the remote server (broad, case-insensitive match)
+    // Strip any Content-Security-Policy meta tags returned by the remote server
     html = html.replace(/<meta[^>]*content-security-policy[^>]*>/gi, '');
 
     // Get local origin to build absolute URLs that bypass base-href resolution
@@ -200,7 +201,7 @@ export default async function handler(req, res) {
     html = html.replace(/<script[^>]*tag\.min\.js[^>]*>([\s\S]*?)<\/script>/gi, '');
     html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
 
-    // Bypass adblock.com detection request by replacing it with a local path (succeeds under 'self' CSP)
+    // Bypass adblock.com detection request by replacing it with a local path
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
@@ -279,4 +280,4 @@ export default async function handler(req, res) {
     console.error('Proxy request failed:', error.message);
     return res.status(500).send(`Proxy error: ${error.message}`);
   }
-};
+}

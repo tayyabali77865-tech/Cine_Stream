@@ -85,7 +85,7 @@ function prefetchUrl(url) {
   const connection = navigator.connection;
   const canPrefetch = !connection || (!connection.saveData && !['slow-2g', '2g'].includes(connection.effectiveType));
   if (canPrefetch) {
-    apiCache.fetch(url).catch(() => {});
+    apiCache.fetch(url).catch(() => { });
   }
 }
 
@@ -191,7 +191,7 @@ class CardRecyclerPool {
     title.textContent = movie.title;
     title.title = movie.title;
     rating.textContent = movie.vote_average || 'N/A';
-    
+
     const formatBadge = movie.media_type === 'tv' ? 'Series' : 'Movie';
     format.textContent = formatBadge;
     format.className = `card-format-badge ${formatBadge.toLowerCase()}`;
@@ -205,7 +205,7 @@ class CardRecyclerPool {
 
     badge.textContent = audioBadge;
     loadFastImage(img, movie.poster, isAboveFold);
-    
+
     card.onclick = () => {
       window.location.hash = movie.slug;
     };
@@ -364,7 +364,7 @@ function renderNextBatch() {
 
   moviesGrid.appendChild(fragment);
   displayedCount += nextBatch.length;
-  
+
   // Show infinite scroll indicator container
   paginationContainer.style.display = 'flex';
 
@@ -385,7 +385,7 @@ function renderNextBatch() {
 async function fetchMoreFromServer() {
   if (isLoading) return;
   isLoading = true;
-  
+
   try {
     let url = '';
     if (currentQuery) {
@@ -396,7 +396,7 @@ async function fetchMoreFromServer() {
         url += `&category=${encodeURIComponent(currentCategory)}`;
       }
     }
-    
+
     const data = await apiCache.fetch(url);
     if (data.success && data.data && data.data.length > 0) {
       const existingSlugs = new Set(loadedMovies.map(m => m.slug));
@@ -426,11 +426,11 @@ async function loadMovies() {
   isLoading = true;
 
   currentPage = 1;
-  
+
   // Release current active cards back to pool
   const activeCards = Array.from(moviesGrid.querySelectorAll('.movie-card'));
   activeCards.forEach(c => cardPool.release(c));
-  
+
   moviesGrid.innerHTML = getSkeletonsHTML();
   paginationContainer.style.display = 'none';
   loadedMovies = [];
@@ -935,13 +935,13 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
               const recSection = document.getElementById('recommended-section');
               const recTrack = document.getElementById('rec-slider-track');
               recTrack.innerHTML = '';
-              
+
               shuffled.forEach(item => {
                 const card = cardPool.createNewCardNode();
                 cardPool.populate(card, item);
                 recTrack.appendChild(card);
               });
-              
+
               recSection.style.display = 'block';
 
               document.getElementById('rec-prev-btn').onclick = () => {
@@ -1043,7 +1043,7 @@ function resetState() {
   currentQuery = '';
   searchInput.value = '';
   filterBanner.style.display = 'none';
-  
+
   // Release active movie cards
   const activeCards = Array.from(moviesGrid.querySelectorAll('.movie-card'));
   activeCards.forEach(c => cardPool.release(c));
