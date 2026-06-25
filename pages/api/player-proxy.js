@@ -38,7 +38,7 @@ function errorPage(message) {
 </head>
 <body>
   <div class="box">
-    <div class="icon">🎬</div>
+    <div class="icon">&#127916;</div>
     <h2>Video Unavailable</h2>
     <p>This video could not be loaded from any server. The file may have been removed from the CDN. Try another server button above.</p>
     <span class="code">${message}</span>
@@ -145,26 +145,51 @@ export default async function handler(req, res) {
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const localOrigin = `${proto}://${host}`;
 
-    // Inject AdBlock bypass script and base tag
-    // ALWAYS use the ORIGINAL domain for base href — fallback domains (netmirror.global etc.)
-    // don't send CORS headers, causing ERR_FAILED for module scripts.
-    // spedostream2.shop / the original domain serves the same player assets WITH CORS headers.
+    // --- Asset URL rewriting for CORS ---
+    // When falling back to a different domain (e.g. netmirror.global), that domain's player
+    // uses Vite-built type="module" scripts. Module scripts ALWAYS require CORS headers.
+    // The fallback domain does NOT send CORS headers.
+    // Solution: route all asset URLs through /api/asset-proxy which fetches the actual
+    // asset and adds Access-Control-Allow-Origin: * headers.
     const parsedOriginal = new URL(url);
-    const originalOrigin = `${parsedOriginal.protocol}//${parsedOriginal.host}`;
-    const baseHref = `${originalOrigin}/play/`;
+    const originalOrigin = parsedOriginal.protocol + '//' + parsedOriginal.host;
 
-    // If we fell back to a different domain, rewrite all absolute URLs in the HTML
-    // from the fallback domain back to the original domain so assets load with CORS headers.
+    let assetOrigin = originalOrigin;
+    let baseHref = originalOrigin + '/play/';
+
     if (successUrl) {
       const parsedSuccess = new URL(successUrl);
-      const fallbackOrigin = `${parsedSuccess.protocol}//${parsedSuccess.host}`;
+      const fallbackOrigin = parsedSuccess.protocol + '//' + parsedSuccess.host;
+
       if (fallbackOrigin !== originalOrigin) {
-        // Replace all occurrences of the fallback domain with the original domain
-        const escapedFallback = fallbackOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        html = html.replace(new RegExp(escapedFallback, 'g'), originalOrigin);
-        console.log(`[player-proxy] Rewrote asset URLs from ${fallbackOrigin} → ${originalOrigin}`);
+        // Use fallback domain as the asset source and base href
+        assetOrigin = fallbackOrigin;
+        baseHref = fallbackOrigin + '/play/';
+
+        // Step 1: Rewrite absolute fallback-domain asset URLs to go via asset-proxy
+        // e.g. https://netmirror.global/assets/index.js -> /api/asset-proxy?url=...
+        const escapedFallback = fallbackOrigin.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        html = html.replace(
+          new RegExp(escapedFallback + '(/[^"\'\\s<>]+)', 'g'),
+          function(match, path) {
+            return localOrigin + '/api/asset-proxy?url=' + encodeURIComponent(fallbackOrigin + path);
+          }
+        );
+
+        // Step 2: Rewrite relative /assets/, /js/, /css/, /dist/ paths in src/href attributes
+        // e.g. src="/assets/index.js" -> src="/api/asset-proxy?url=https://netmirror.global/assets/index.js"
+        html = html.replace(
+          /((?:src|href)=["'])(\/(?:assets|js|css|dist)\/[^"']+)(["'])/g,
+          function(match, before, path, after) {
+            return before + localOrigin + '/api/asset-proxy?url=' + encodeURIComponent(assetOrigin + path) + after;
+          }
+        );
+
+        console.log('[player-proxy] Asset proxy: routing ' + fallbackOrigin + ' assets via ' + localOrigin + '/api/asset-proxy');
       }
     }
+
+    // Inject AdBlock bypass script and base tag
     const adblockBypassScript = `
       <script>
         window.adblock = false;
@@ -212,18 +237,15 @@ export default async function handler(req, res) {
     // Force extension status to true
     html = html.replace(/params\.get\(['"]exten['"]\)/g, '"true"');
 
-    // Strip ad/tracking scripts to prevent CSP violations and tracking
+    // Strip ad/tracking scripts
     html = html.replace(/<script[^>]*llvpn\.com[^>]*>([\s\S]*?)<\/script>/gi, '');
     html = html.replace(/<script[^>]*tag\.min\.js[^>]*>([\s\S]*?)<\/script>/gi, '');
     html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
-
-    // Bypass adblock.com detection request by replacing it with a local path
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
     html = html.replace(/console\.log\(['"]AdBlock detected['"]\)/gi, 'console.log("AdBlock bypassed")');
 
-    // Always use our own Vercel Edge video-proxy for the video stream.
-    // Cloudflare Worker IPs are blocked by the video CDN (hakunaymatata.com runs on Cloudflare
-    // and blocks other Cloudflare Workers IPs). Vercel Edge avoids this conflict.
+    // Route video stream through our Vercel Edge video-proxy
+    // (Cloudflare Worker IPs are blocked by hakunaymatata.com CDN)
     const videoProxyUrl = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) {
