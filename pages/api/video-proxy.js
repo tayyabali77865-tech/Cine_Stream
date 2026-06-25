@@ -14,7 +14,8 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
-  'spedostream2.shop'
+  'spedostream2.shop',
+  'filesdl.top',
 ];
 
 function isPrivateIp(ip) {
