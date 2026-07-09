@@ -377,7 +377,7 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
 
     // Smart routing: hakunaymatata.com blocks Cloudflare IPs → use Vercel proxy
-    // All other CDNs → use Cloudflare Worker
+    // All other CDNs → use Cloudflare Worker (zero server bandwidth)
     const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) { return play_url; }

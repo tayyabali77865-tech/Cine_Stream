@@ -1,15 +1,15 @@
 :root {
-  --bg-primary: #0b0f19;
-  --bg-secondary: #131a2c;
-  --bg-tertiary: #1b253f;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent: #8b5cf6;
-  --accent-hover: #7c3aed;
-  --accent-gradient: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 50%, #6366f1 100%);
-  --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --bg-primary: #000000;
+  --bg-secondary: #121212;
+  --bg-tertiary: #1c1c1c;
+  --text-primary: #ffffff;
+  --text-secondary: #b3b3b3;
+  --accent: #e50914;
+  --accent-hover: #b80710;
+  --accent-gradient: linear-gradient(135deg, #ff2a35 0%, #e50914 50%, #9b040a 100%);
+  --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --border-color: rgba(255, 255, 255, 0.08);
+  --border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Beautiful Custom Scrollbars */
@@ -42,12 +42,12 @@ textarea {
 
 /* Light theme overrides */
 [data-theme="light"] {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --border-color: rgba(0, 0, 0, 0.08);
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e5e5e5;
+  --text-primary: #000000;
+  --text-secondary: #404040;
+  --border-color: rgba(0, 0, 0, 0.1);
   --card-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.05);
 }
 
@@ -178,7 +178,7 @@ a {
 .nav-actions button:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background-color: rgba(139, 92, 246, 0.05);
+  background-color: rgba(229, 9, 20, 0.05);
 }
 
 /* Layout */
@@ -241,7 +241,7 @@ a {
 
 .category-list li a:hover,
 .category-list li.active a {
-  background-color: rgba(139, 92, 246, 0.1);
+  background-color: rgba(229, 9, 20, 0.1);
   color: var(--accent);
   font-weight: 600;
   padding-left: 18px;
@@ -308,7 +308,7 @@ a {
 
 .movie-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 15px 30px -10px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 15px 30px -10px rgba(229, 9, 20, 0.3);
 }
 
 .card-poster-wrapper {
@@ -360,8 +360,8 @@ a {
 
 
 .player-tip-banner {
-  background-color: rgba(139, 92, 246, 0.08);
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background-color: rgba(229, 9, 20, 0.08);
+  border: 1px solid rgba(229, 9, 20, 0.25);
   padding: 12px 20px;
   border-radius: 12px;
   font-size: 0.88rem;
@@ -495,13 +495,13 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 10px 15px -3px rgba(229, 9, 20, 0.3);
   transition: var(--transition-smooth);
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 15px 20px -3px rgba(139, 92, 246, 0.4);
+  box-shadow: 0 15px 20px -3px rgba(229, 9, 20, 0.4);
 }
 
 /* Modal */
@@ -694,7 +694,7 @@ a {
   border-color: transparent;
   color: white;
   transform: translateY(-2px);
-  box-shadow: 0 8px 15px -3px rgba(139, 92, 246, 0.25);
+  box-shadow: 0 8px 15px -3px rgba(229, 9, 20, 0.25);
 }
 
 /* Footer */
@@ -782,7 +782,7 @@ a {
   .menu-toggle-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
-    background-color: rgba(139, 92, 246, 0.05);
+    background-color: rgba(229, 9, 20, 0.05);
   }
 
   .brand {
@@ -1072,7 +1072,7 @@ a {
 
 .detail-select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.15);
 }
 
 .meta-badges {
