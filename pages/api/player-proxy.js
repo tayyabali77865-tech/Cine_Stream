@@ -193,13 +193,10 @@ export default async function handler(req, res) {
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
 
-    let workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+    let workerUrl = process.env.CLOUDFLARE_WORKER_URL || null;
     if (!workerUrl) {
-      console.error('[player-proxy] CLOUDFLARE_WORKER_URL is missing in environment variables');
-      res.setHeader('Content-Type', 'text/html');
-      return res.status(500).send(errorPage('Cloudflare Worker URL is not configured. Please check your environment variables.'));
-    }
-    if (!workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
+      console.warn('[player-proxy] CLOUDFLARE_WORKER_URL not set — running in direct fetch mode (local/dev).');
+    } else if (!workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
       workerUrl = `https://${workerUrl}`;
     }
 
