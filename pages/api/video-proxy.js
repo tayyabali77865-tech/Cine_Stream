@@ -53,6 +53,22 @@ export default async function handler(req) {
       return new Response('Forbidden', { status: 403 });
     }
 
+    // ── hakunaymatata.com: skip HEAD, directly 302 redirect to CDN ───────────
+    // hakunaymatata.com blocks Cloudflare/server IPs on HEAD/GET but NOT browser IPs.
+    // So just send the browser directly — it will work fine.
+    const streamHost = new URL(streamUrl).hostname.toLowerCase();
+    if (streamHost.includes('hakunaymatata.com')) {
+      console.log('[video-proxy] hakunaymatata → direct 302 redirect to browser');
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': streamUrl,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
     // ── Resolve redirects server-side (HEAD request to follow hops) ──────────
     // Then send a 302 to the FINAL resolved URL so the browser fetches
     // video bytes directly from CDN — zero server bandwidth.
