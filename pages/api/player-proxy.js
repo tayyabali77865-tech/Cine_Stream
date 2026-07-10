@@ -341,18 +341,25 @@ export default async function handler(req, res) {
         window.canRunAds = true;
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
-        window.hasExtensionActive = false;
+
+        // Immediately mark extension as active to bypass "Come from listed Website" check
+        window.hasExtensionActive = true;
+
+        // Also respond to any NETMIRROR_CHECK messages from the player
         window.addEventListener("message", (event) => {
+          if (event.data && event.data.type === "NETMIRROR_CHECK") {
+            window.postMessage({ type: "NETMIRROR_EXTENSION_DETECTED" }, "*");
+          }
           if (event.data && event.data.type === "NETMIRROR_EXTENSION_DETECTED") {
             window.hasExtensionActive = true;
           }
         });
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-          if (window.hasExtensionActive || checkCount > 15) { clearInterval(checkInterval); return; }
-          window.postMessage({ type: "NETMIRROR_CHECK" }, "*");
-          checkCount++;
-        }, 50);
+
+        // Intercept any domain/origin whitelist checks and always return true
+        window.isListedWebsite = true;
+        window.checkOrigin = function() { return true; };
+        window.verifySource = function() { return true; };
+
         document.addEventListener('DOMContentLoaded', () => {
           const observer = new MutationObserver(() => {
             const video = document.querySelector('video');
