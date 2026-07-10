@@ -289,16 +289,14 @@ export default async function handler(req, res) {
     let response = null;
     let successUrl = null;
 
+    // Always fetch player HTML directly (NOT through CF Worker)
+    // so that the correct Referer: netmirror.global reaches spedostream2.shop
     for (const domain of PLAYER_FALLBACK_DOMAINS) {
       const candidateUrl = buildFallbackUrl(targetUrl, domain);
       if (!candidateUrl) continue;
 
-      const fetchUrl = workerUrl
-        ? `${workerUrl}?playerUrl=${encodeURIComponent(candidateUrl)}`
-        : candidateUrl;
-
       try {
-        const r = await fetch(fetchUrl, { headers });
+        const r = await fetch(candidateUrl, { headers });
         if (r.ok) {
           response = r;
           successUrl = candidateUrl;
@@ -336,30 +334,38 @@ export default async function handler(req, res) {
 
     const adblockBypassScript = `
       <script>
+        // ── Adblock bypass ──────────────────────────────────────────────
         window.adblock = false;
         window.adblock3 = false;
         window.canRunAds = true;
         window.adblockDetected = false;
         window.checkAdBlock = function() { return false; };
 
-        // Immediately mark extension as active to bypass "Come from listed Website" check
+        // ── Spoof document.referrer so the player thinks we came from netmirror.global ──
+        try {
+          Object.defineProperty(document, 'referrer', {
+            get: function() { return 'https://netmirror.global/'; },
+            configurable: true
+          });
+        } catch(e) {}
+
+        // ── Mark extension as active immediately ──────────────────────
         window.hasExtensionActive = true;
-
-        // Also respond to any NETMIRROR_CHECK messages from the player
-        window.addEventListener("message", (event) => {
-          if (event.data && event.data.type === "NETMIRROR_CHECK") {
-            window.postMessage({ type: "NETMIRROR_EXTENSION_DETECTED" }, "*");
-          }
-          if (event.data && event.data.type === "NETMIRROR_EXTENSION_DETECTED") {
-            window.hasExtensionActive = true;
-          }
-        });
-
-        // Intercept any domain/origin whitelist checks and always return true
         window.isListedWebsite = true;
         window.checkOrigin = function() { return true; };
         window.verifySource = function() { return true; };
 
+        // ── Respond to extension check messages ───────────────────────
+        window.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'NETMIRROR_CHECK') {
+            window.postMessage({ type: 'NETMIRROR_EXTENSION_DETECTED' }, '*');
+          }
+          if (event.data && event.data.type === 'NETMIRROR_EXTENSION_DETECTED') {
+            window.hasExtensionActive = true;
+          }
+        });
+
+        // ── Apply no-referrer to video element when it appears ────────
         document.addEventListener('DOMContentLoaded', () => {
           const observer = new MutationObserver(() => {
             const video = document.querySelector('video');
@@ -380,6 +386,15 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
 
+    // ── Strip any hardcoded "Not Found" / "Come from listed Website" checks ──
+    // Replace the error string so the condition never triggers visually
+    html = html.replace(/Not Found\.?\s*or\s*Come from listed Website\.?/gi, '');
+    html = html.replace(/Come from listed Website/gi, '');
+    // Nullify any domain whitelist array checks: replace the check result with true
+    html = html.replace(/\[([\s\S]{0,300}?)\]\.includes\(\s*(?:location\.hostname|window\.location\.hostname|document\.domain|new URL\(document\.referrer\)\.hostname)\s*\)/g, 'true');
+    // Spoof location.hostname to netmirror.global for any remaining checks
+    html = html.replace(/location\.hostname/g, '"netmirror.global"');
+
     // Smart routing:
     // - hakunaymatata.com blocks Cloudflare IPs → always use Vercel proxy
     // - If Cloudflare Worker is configured → use it for all other CDNs (saves bandwidth)
@@ -387,7 +402,6 @@ export default async function handler(req, res) {
     const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
     const workerAvailable = !!workerUrl;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
-      if (window.hasExtensionActive) { return play_url; }
       // Check if the signed URL has an expired t= timestamp
       try {
         const urlObj = new URL(play_url);
