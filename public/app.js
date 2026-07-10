@@ -181,6 +181,9 @@ class CardRecyclerPool {
     const img = card.querySelector('.card-poster');
     if (img) {
       img.removeAttribute('data-origin-src');
+      if (img.dataset) {
+        img.dataset.currentUrl = '';
+      }
       img.loading = 'lazy';
       img.fetchPriority = 'auto';
       img.src = '';
