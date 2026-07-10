@@ -113,8 +113,14 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
     imgElement.loading = 'lazy';
   }
 
+  // Store target URL on the element to detect if it has been reassigned/recycled
+  imgElement.dataset.currentUrl = originalUrl;
+
   let triedDirect = false;
   imgElement.onerror = () => {
+    // Only apply the error handling if this element is still supposed to load this originalUrl
+    if (imgElement.dataset.currentUrl !== originalUrl) return;
+
     if (triedDirect) {
       imgElement.onerror = null;
       imgElement.src = NO_POSTER;
@@ -125,7 +131,10 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
   };
 
   imgElement.onload = () => {
-    imgElement.classList.add('img-loaded');
+    // Only apply the load status if this element is still supposed to show this originalUrl
+    if (imgElement.dataset.currentUrl === originalUrl) {
+      imgElement.classList.add('img-loaded');
+    }
   };
 
   // Set src directly — browser handles caching, parallel loading, lazy
