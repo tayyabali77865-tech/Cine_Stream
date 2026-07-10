@@ -949,36 +949,44 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
             if (shuffled.length > 0) {
               const recSection = document.getElementById('recommended-section');
               const recTrack = document.getElementById('rec-slider-track');
-              recTrack.innerHTML = '';
+              if (!recSection || !recTrack) return;
 
               shuffled.forEach(item => {
-                const card = cardPool.createNewCardNode();
-                cardPool.populate(card, item);
+                const card = cardPool.acquire(item, false);
                 recTrack.appendChild(card);
               });
 
               recSection.style.display = 'block';
 
-              document.getElementById('rec-prev-btn').onclick = () => {
-                recTrack.scrollBy({ left: -300, behavior: 'smooth' });
-              };
-              document.getElementById('rec-next-btn').onclick = () => {
-                recTrack.scrollBy({ left: 300, behavior: 'smooth' });
-              };
+              const prevBtn = document.getElementById('rec-prev-btn');
+              if (prevBtn) {
+                prevBtn.onclick = () => {
+                  recTrack.scrollBy({ left: -300, behavior: 'smooth' });
+                };
+              }
+              const nextBtn = document.getElementById('rec-next-btn');
+              if (nextBtn) {
+                nextBtn.onclick = () => {
+                  recTrack.scrollBy({ left: 300, behavior: 'smooth' });
+                };
+              }
 
-              document.getElementById('rec-view-all-btn').onclick = () => {
-                closeModal(true);
-                const categories = categoryList.querySelectorAll('li');
-                categories.forEach(li => {
-                  li.classList.remove('active');
-                  const catLink = li.querySelector('a');
-                  if (catLink && catLink.innerText.toLowerCase() === recCat.replace('-', ' ').toLowerCase()) {
-                    li.classList.add('active');
-                  }
-                });
-                resetCategoryFilter(recCat, recCat.charAt(0).toUpperCase() + recCat.slice(1).replace('-', ' '));
-                loadMovies();
-              };
+              const viewAllBtn = document.getElementById('rec-view-all-btn');
+              if (viewAllBtn) {
+                viewAllBtn.onclick = () => {
+                  closeModal(true);
+                  const categories = categoryList.querySelectorAll('li');
+                  categories.forEach(li => {
+                    li.classList.remove('active');
+                    const catLink = li.querySelector('a');
+                    if (catLink && catLink.innerText.toLowerCase() === recCat.replace('-', ' ').toLowerCase()) {
+                      li.classList.add('active');
+                    }
+                  });
+                  resetCategoryFilter(recCat, recCat.charAt(0).toUpperCase() + recCat.slice(1).replace('-', ' '));
+                  loadMovies();
+                };
+              }
             }
           }
         } catch (recErr) {
@@ -1042,6 +1050,13 @@ function closeModal(updateHash = true) {
   const iframe = document.getElementById('player-iframe');
   if (iframe) {
     iframe.src = 'about:blank';
+  }
+  // Release any recommendation cards inside the modal to return them to the pool
+  const recTrack = document.getElementById('rec-slider-track');
+  if (recTrack) {
+    const recCards = Array.from(recTrack.querySelectorAll('.movie-card'));
+    recCards.forEach(card => cardPool.release(card));
+    recTrack.innerHTML = '';
   }
   detailsModal.classList.remove('active');
   document.body.style.overflow = '';

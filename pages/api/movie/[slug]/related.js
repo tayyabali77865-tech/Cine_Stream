@@ -35,13 +35,21 @@ export default async function handler(req, res) {
   try {
     const { title } = req.query;
     if (!title) {
-      return res.status(400).json({ success: false, error: 'Title query parameter is required.' });
+      return res.status(200).json({ success: true, data: [] });
     }
 
     const url = `${API_BASE_4}/related/${encodeURIComponent(title)}?page=0`;
-    const response = await fetchWithRetry(url);
-    if (!response.ok) {
-      throw new Error(`NetMirror related titles failed: ${response.status}`);
+    let response;
+    try {
+      response = await fetchWithRetry(url);
+    } catch (fetchErr) {
+      console.warn('Failed to fetch related movies from API:', fetchErr.message);
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    if (!response || !response.ok) {
+      console.warn('API returned non-200 response for related:', response ? response.status : 'no response');
+      return res.status(200).json({ success: true, data: [] });
     }
 
     const data = await response.json();
@@ -53,6 +61,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Error in related dubbed versions api:', error.message);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(200).json({ success: true, data: [] });
   }
 };
