@@ -395,36 +395,35 @@ export default async function handler(req, res) {
     // Spoof location.hostname to netmirror.global for any remaining checks
     html = html.replace(/location\.hostname/g, '"netmirror.global"');
 
-    // Smart routing:
-    // - hakunaymatata.com blocks Cloudflare IPs → always use Vercel proxy
-    // - If Cloudflare Worker is configured → use it for all other CDNs (saves bandwidth)
-    // - If no Worker configured (local/dev) → fallback to Vercel proxy for all streams
+    // ── Direct CDN Streaming (Zero Server Bandwidth) ──────────────────────────
+    // Video plays directly from CDN in the browser.
+    // The video element already has referrerpolicy="no-referrer" set (see MutationObserver above),
+    // so CDN receives NO Referer header and allows the request.
+    // EXCEPTION: hakunaymatata.com blocks all non-whitelisted IPs → must use Vercel proxy.
     const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
-    const workerAvailable = !!workerUrl;
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
-      // Check if the signed URL has an expired t= timestamp
+      // Check if the signed URL has an expired t= timestamp — reload for fresh URL if so
       try {
         const urlObj = new URL(play_url);
         const tParam = urlObj.searchParams.get('t');
         if (tParam) {
           const urlTs = parseInt(tParam, 10);
           const nowTs = Math.floor(Date.now() / 1000);
-          const ageMin = Math.round((nowTs - urlTs) / 60);
           if (nowTs - urlTs > 3600) {
-            console.warn('[STREAM ROUTE] URL expired by ' + ageMin + ' min, reloading player for fresh signed URL...');
+            console.warn('[STREAM] URL expired, reloading for fresh signed URL...');
             setTimeout(function() { window.location.reload(); }, 100);
             return play_url;
           }
         }
       } catch(e) {}
-      const isHakuna = play_url.includes('hakunaymatata.com');
-      const workerAvailable = ${workerAvailable};
-      const cfWorkerUrl = ${workerUrl ? JSON.stringify(workerUrl) : 'null'};
-      const finalVideoUrl = (isHakuna || !workerAvailable)
-        ? "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url)
-        : cfWorkerUrl + "?streamUrl=" + encodeURIComponent(play_url);
-      console.log("[STREAM ROUTE]", (isHakuna || !workerAvailable) ? '[Vercel Fallback]' : '[CF Worker]', finalVideoUrl);
-      return finalVideoUrl; `);
+      // hakunaymatata.com must go through Vercel proxy (it blocks direct requests)
+      // Everything else: return the direct CDN URL — browser plays it with no-referrer policy
+      if (play_url.includes('hakunaymatata.com')) {
+        console.log('[STREAM ROUTE] hakunaymatata → Vercel proxy');
+        return "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url);
+      }
+      console.log('[STREAM ROUTE] Direct CDN (zero bandwidth) →', play_url);
+      return play_url; `);
 
     const extraStyles = `
       <style>
