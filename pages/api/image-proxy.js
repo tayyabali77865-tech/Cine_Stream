@@ -7,6 +7,7 @@ const ALLOWED_CDN_DOMAINS = [
   'pbcdnw.aoneroom.com',
   'spedostream2.shop',
   'imb.hair',
+  'imb.lat',
   'netmirror.global',
   'netmirror.hair',
   'fmoviesunblocked.net',
@@ -16,7 +17,16 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
-  'media-amazon.com'
+  'media-amazon.com',
+  'm.media-amazon.com',
+  'imgshare.info',
+  'imgshare.net',
+  'aoneroom.com',
+  'imdb.com',
+  'img.youtube.com',
+  'i.imgur.com',
+  'imgflip.com',
+  'staticflickr.com',
 ];
 
 function isPrivateIp(ip) {

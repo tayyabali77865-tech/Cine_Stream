@@ -1,3 +1,6 @@
+// Fallback poster — inline SVG, no external dependency
+const NO_POSTER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' viewBox='0 0 200 300'%3E%3Crect width='200' height='300' fill='%231c1c1c'/%3E%3Ctext x='50%25' y='45%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='13' fill='%23666'%3ENo Poster%3C/text%3E%3Ctext x='50%25' y='58%25' dominant-baseline='middle' text-anchor='middle' font-size='28' fill='%23444'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+
 // State Management
 let currentPage = 1;
 let currentCategory = 'trending';
@@ -94,7 +97,7 @@ function prefetchUrl(url) {
 // Below-fold images: native browser loading=lazy
 function loadFastImage(imgElement, originalUrl, isAboveFold) {
   if (!originalUrl) {
-    imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+    imgElement.src = NO_POSTER;
     return;
   }
 
@@ -114,7 +117,7 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
   imgElement.onerror = () => {
     if (triedDirect) {
       imgElement.onerror = null;
-      imgElement.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+      imgElement.src = NO_POSTER;
       return;
     }
     triedDirect = true;
@@ -657,7 +660,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         </div>
       `;
 
-      let proxiedDetailPoster = movie.poster || 'https://via.placeholder.com/200x300?text=No+Poster';
+      let proxiedDetailPoster = movie.poster || NO_POSTER;
       if (proxiedDetailPoster.startsWith('http')) {
         proxiedDetailPoster = `/api/image-proxy?url=${encodeURIComponent(proxiedDetailPoster)}`;
       }
@@ -676,7 +679,7 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
 
         <div class="details-info-grid">
           <div>
-            <img src="${proxiedDetailPoster}" alt="Poster" class="details-poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Poster'">
+            <img src="${proxiedDetailPoster}" alt="Poster" class="details-poster" onerror="this.src=NO_POSTER">
           </div>
           <div class="details-desc-wrapper">
             <div class="meta-badges">
