@@ -4,140 +4,123 @@ export const config = {
 
 const ALLOWED_CDN_DOMAINS = [
   'pacdn.aoneroom.com',
+  'pbcdnw.aoneroom.com',
   'spedostream2.shop',
   'imb.hair',
+  'imb.lat',
   'netmirror.global',
   'netmirror.hair',
   'fmoviesunblocked.net',
-  'via.placeholder.com',
   'hakunaymatata.com',
+  'bcdnxw.hakunaymatata.com',
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
-  'spedostream2.shop',
   'filesdl.top',
+  'aoneroom.com',
 ];
 
 function isPrivateIp(ip) {
-  // Check loopback, link-local, private IPv4 ranges, and IPv6 loopback
   if (
-    ip === '127.0.0.1' ||
-    ip === 'localhost' ||
-    ip === '::1' ||
-    ip === '[::1]' ||
-    ip.startsWith('10.') ||
-    ip.startsWith('169.254.') ||
-    ip.startsWith('127.')
-  ) {
-    return true;
-  }
-  // 172.16.0.0 - 172.31.255.255
+    ip === '127.0.0.1' || ip === 'localhost' || ip === '::1' || ip === '[::1]' ||
+    ip.startsWith('10.') || ip.startsWith('169.254.') || ip.startsWith('127.')
+  ) return true;
   if (ip.startsWith('172.')) {
-    const parts = ip.split('.');
-    if (parts.length >= 2) {
-      const secondOctet = parseInt(parts[1], 10);
-      if (secondOctet >= 16 && secondOctet <= 31) {
-        return true;
-      }
-    }
+    const second = parseInt(ip.split('.')[1], 10);
+    if (second >= 16 && second <= 31) return true;
   }
-  // 192.168.0.0 - 192.168.255.255
-  if (ip.startsWith('192.168.')) {
-    return true;
-  }
-  return false;
+  return ip.startsWith('192.168.');
 }
 
 function isValidProxyUrl(targetUrl) {
   try {
-    const parsed = new URL(targetUrl);
-    const hostname = parsed.hostname.toLowerCase();
-
-    if (
-      isPrivateIp(hostname) ||
-      hostname.endsWith('.local') ||
-      hostname.endsWith('.internal')
-    ) {
-      return false;
-    }
-
-    // Allowlist check
-    return ALLOWED_CDN_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
-  } catch (e) {
-    return false;
-  }
+    const { hostname } = new URL(targetUrl);
+    const h = hostname.toLowerCase();
+    if (isPrivateIp(h) || h.endsWith('.local') || h.endsWith('.internal')) return false;
+    return ALLOWED_CDN_DOMAINS.some(d => h === d || h.endsWith('.' + d));
+  } catch { return false; }
 }
 
 export default async function handler(req) {
   try {
     const { searchParams } = new URL(req.url);
     const streamUrl = searchParams.get('streamUrl');
+
     if (!streamUrl) {
-      return new Response('streamUrl query parameter is required', { status: 400 });
+      return new Response('streamUrl parameter is required', { status: 400 });
     }
-
     if (!isValidProxyUrl(streamUrl)) {
-      return new Response('Forbidden: Target URL is not allowed', { status: 403 });
+      return new Response('Forbidden', { status: 403 });
     }
 
-    const range = req.headers.get('range') || 'bytes=0-';
+    // ── Resolve redirects server-side (HEAD request to follow hops) ──────────
+    // Then send a 302 to the FINAL resolved URL so the browser fetches
+    // video bytes directly from CDN — zero server bandwidth.
     let currentUrl = streamUrl;
+    const maxRedirects = 6;
     let redirectsFollowed = 0;
-    const maxRedirects = 5;
-    let response;
 
     while (redirectsFollowed < maxRedirects) {
-      // Forward only safe headers (User-Agent and Range)
-      const forwardHeaders = new Headers({
-        'User-Agent': req.headers.get('user-agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Range': range,
-        'Referer': 'https://fmoviesunblocked.net/',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
-      });
-
-      response = await fetch(currentUrl, {
-        method: req.method || 'GET',
-        headers: forwardHeaders,
+      const headRes = await fetch(currentUrl, {
+        method: 'HEAD',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://netmirror.global/',
+          'Accept': '*/*',
+        },
         redirect: 'manual',
       });
 
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
+      if (headRes.status >= 300 && headRes.status < 400) {
+        const location = headRes.headers.get('location');
         if (!location) break;
-
-        // Resolve dynamic redirect location relative to current URL
         const nextUrl = new URL(location, currentUrl).toString();
-
-        // Strictly validate redirect target
-        if (!isValidProxyUrl(nextUrl)) {
-          return new Response('Forbidden: Redirect target is not allowed', { status: 403 });
-        }
-
+        if (!isValidProxyUrl(nextUrl)) break; // Stop if redirect goes to unknown domain
         currentUrl = nextUrl;
         redirectsFollowed++;
-      } else {
+        continue;
+      }
+
+      // Check if CDN returned HTML instead of video (e.g. filesdl.top download page)
+      const ct = headRes.headers.get('content-type') || '';
+      if (ct.includes('text/html')) {
+        // Fall through to GET-based HTML extraction below
         break;
       }
+
+      // Final URL resolved — redirect browser directly to CDN
+      console.log(`[video-proxy] 302 redirect to CDN (${redirectsFollowed} hops): ${currentUrl}`);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': currentUrl,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      });
     }
 
-    if (!response.ok && response.status !== 206) {
-      return new Response(null, { status: response.status || 404 });
-    }
+    // ── Fallback: GET request for HTML-based download pages (filesdl.top etc.) ──
+    const getRes = await fetch(currentUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://netmirror.global/',
+        'Accept': '*/*',
+      },
+      redirect: 'follow',
+    });
 
-    // Detect if CDN returned HTML (download page) instead of a video stream (e.g. filesdl.top)
-    const contentType = response.headers.get('content-type') || '';
+    const contentType = getRes.headers.get('content-type') || '';
+
+    // If it's an HTML page, try to extract embedded MP4 URL and redirect to it
     if (contentType.includes('text/html')) {
-      const html = await response.text();
-      // Only extract streamable formats (MP4/WebM) — MKV not playable in browser
+      const html = await getRes.text();
       const mp4Match = html.match(/https:\/\/[^"'<>\s]+\.(mp4|webm)(\?[^"'<>\s]*)?/i);
-      const streamableUrl = (mp4Match && mp4Match[0] &&
-                             !mp4Match[0].toLowerCase().includes('.mkv') &&
-                             !mp4Match[0].toLowerCase().includes('.avi'))
-                            ? mp4Match[0] : null;
+      const streamableUrl = mp4Match && mp4Match[0] ? mp4Match[0] : null;
 
-      if (streamableUrl) {
+      if (streamableUrl && isValidProxyUrl(streamableUrl)) {
+        console.log(`[video-proxy] Extracted MP4 from HTML page, redirecting: ${streamableUrl}`);
         return new Response(null, {
           status: 302,
           headers: {
@@ -147,7 +130,8 @@ export default async function handler(req) {
           },
         });
       }
-      // MKV/download-only — return JSON so player can show download option
+
+      // Download-only content (MKV etc.)
       return new Response(JSON.stringify({
         type: 'download_only',
         message: 'This content is download-only (MKV/non-streamable format)',
@@ -162,25 +146,20 @@ export default async function handler(req) {
       });
     }
 
-    const responseHeaders = new Headers({
-      'Content-Type': response.headers.get('content-type') || 'video/mp4',
-      'Accept-Ranges': 'bytes',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Cache-Control': 'public, max-age=3600, s-maxage=86400',
+    // If GET response is a direct video stream, redirect to final URL
+    const finalUrl = getRes.url || currentUrl;
+    console.log(`[video-proxy] GET resolved, redirecting to: ${finalUrl}`);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': finalUrl,
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      },
     });
 
-    const contentRange = response.headers.get('content-range');
-    if (contentRange) responseHeaders.set('Content-Range', contentRange);
-
-    const contentLength = response.headers.get('content-length');
-    if (contentLength) responseHeaders.set('Content-Length', contentLength);
-
-    return new Response(response.body, {
-      status: response.status,
-      headers: responseHeaders,
-    });
   } catch (error) {
+    console.error('[video-proxy] Error:', error.message);
     return new Response('Proxy Error', { status: 500 });
   }
 }
