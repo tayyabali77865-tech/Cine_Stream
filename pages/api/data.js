@@ -57,7 +57,23 @@ function sortTrendingMovies(movies) {
   });
 }
 
+// Only fetch the fields the frontend actually uses
+const MOVIE_PROJECTION = {
+  _id: 0,
+  title: 1,
+  slug: 1,
+  poster: 1,
+  media_type: 1,
+  release_date: 1,
+  vote_average: 1,
+  category: 1,
+  categories: 1,
+  scrapedAt: 1
+};
+
 export default async function handler(req, res) {
+  // Cache paginated movie lists: fresh for 60s in browser, 5min at CDN, stale-while-revalidate 10min
+  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
   const { page = 1, category } = req.query;
   const pageIndex = Math.max(0, parseInt(page) - 1);
 
@@ -74,7 +90,7 @@ export default async function handler(req, res) {
 
     if (category === 'trending' || !category) {
       const allTrending = await db.collection('movies')
-        .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] })
+        .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] }, { projection: MOVIE_PROJECTION })
         .sort({ scrapedAt: -1 })
         .toArray();
 
@@ -86,7 +102,7 @@ export default async function handler(req, res) {
       const queryObj = { $or: [{ category: category }, { categories: category }] };
       totalCount = await db.collection('movies').countDocuments(queryObj);
       paginated = await db.collection('movies')
-        .find(queryObj)
+        .find(queryObj, { projection: MOVIE_PROJECTION })
         .sort({ scrapedAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -150,7 +166,7 @@ export default async function handler(req, res) {
               // Re-query database after inserts
               if (category === 'trending' || !category) {
                 const allTrending = await db.collection('movies')
-                  .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] })
+                  .find({ $or: [{ category: 'trending' }, { categories: 'trending' }] }, { projection: MOVIE_PROJECTION })
                   .sort({ scrapedAt: -1 })
                   .toArray();
 
@@ -160,7 +176,7 @@ export default async function handler(req, res) {
               } else {
                 const reQueryObj = { $or: [{ category: catSlug }, { categories: catSlug }] };
                 paginated = await db.collection('movies')
-                  .find(reQueryObj)
+                  .find(reQueryObj, { projection: MOVIE_PROJECTION })
                   .sort({ scrapedAt: -1 })
                   .skip(skip)
                   .limit(limit)

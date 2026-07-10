@@ -1,4 +1,8 @@
 module.exports = {
+  compress: true,
+  poweredByHeader: false,
+  productionBrowserSourceMaps: false,
+
   async rewrites() {
     return [
       {
@@ -17,6 +21,17 @@ module.exports = {
   },
   async headers() {
     return [
+      // Long-lived cache for static public assets (CSS, JS, images, fonts)
+      {
+        source: '/:path*\\.(css|js|woff|woff2|ttf|otf|png|jpg|jpeg|gif|svg|ico|webp|avif)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      // Security + perf headers for all routes
       {
         source: '/(.*)',
         headers: [
@@ -49,3 +64,4 @@ module.exports = {
     ];
   },
 };
+

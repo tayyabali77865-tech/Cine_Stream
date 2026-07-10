@@ -1,4 +1,4 @@
-const API_BASE_4 = 'https://api2.imdb4.shop/api';
+const API_BASE_4 = 'https://api2.imdb3.shop/api';
 
 async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
   for (let i = 0; i < retries; i++) {

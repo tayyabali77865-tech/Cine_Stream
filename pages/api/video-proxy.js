@@ -16,7 +16,6 @@ const ALLOWED_CDN_DOMAINS = [
   'spedostream.com',
   'spedostream.shop',
   'spedostream2.com',
-  'filesdl.top',
   'aoneroom.com',
 ];
 

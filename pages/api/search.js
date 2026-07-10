@@ -1,6 +1,17 @@
 const { clientPromise } = require('../../lib/mongodb');
 
-const API_BASE_4 = 'https://api2.imdb4.shop/api';
+const API_BASE_4 = 'https://api2.imdb3.shop/api';
+
+// Only return the fields the frontend card uses
+const SEARCH_PROJECTION = {
+  _id: 0,
+  title: 1,
+  slug: 1,
+  poster: 1,
+  media_type: 1,
+  release_date: 1,
+  vote_average: 1
+};
 
 async function fetchWithRetry(url, options = {}, retries = 3, delay = 300) {
   for (let i = 0; i < retries; i++) {
@@ -34,6 +45,8 @@ function mapMovieResults(results) {
 }
 
 export default async function handler(req, res) {
+  // Search results cached for 60s browser / 2min CDN / 5min stale-while-revalidate
+  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
   const query = req.query.query || req.body.query;
   const page = req.query.page || 1;
   const pageIndex = Math.max(0, parseInt(page) - 1);
@@ -59,7 +72,7 @@ export default async function handler(req, res) {
 
     const totalCount = await db.collection('movies').countDocuments(searchQuery);
     const paginated = await db.collection('movies')
-      .find(searchQuery)
+      .find(searchQuery, { projection: SEARCH_PROJECTION })
       .sort({ scrapedAt: -1 })
       .skip(skip)
       .limit(limit)

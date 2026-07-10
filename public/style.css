@@ -304,6 +304,11 @@ a {
   display: flex;
   flex-direction: column;
   position: relative;
+  /* CSS Containment: browser skips layout/paint for off-screen cards */
+  contain: layout style paint;
+  /* content-visibility:auto = native virtual scrolling — zero JS, massive scroll perf gain */
+  content-visibility: auto;
+  contain-intrinsic-size: 0 320px;
 }
 
 .movie-card:hover {
@@ -328,14 +333,19 @@ a {
   object-fit: cover;
   opacity: 0;
   transition: opacity 0.4s ease-in-out, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Promote each poster to its own GPU compositor layer for jank-free scaling */
+  transform: translateZ(0);
+  will-change: opacity;
 }
 
 .card-poster.img-loaded {
   opacity: 1;
+  will-change: auto;
 }
 
 .movie-card:hover .card-poster {
-  transform: scale(1.05);
+  transform: scale(1.05) translateZ(0);
+  will-change: transform;
 }
 
 .card-badge {
@@ -1264,6 +1274,11 @@ a {
   .recommended-section .movie-card {
     flex: 0 0 160px !important;
     max-width: 160px !important;
+    height: auto !important;
+  }
+
+  .recommended-section .movie-card .card-poster-wrapper {
+    aspect-ratio: 4/5.6 !important;
   }
 
   .recommended-section {

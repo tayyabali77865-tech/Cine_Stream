@@ -3,6 +3,7 @@ const crypto = require('crypto');
 // Player domain fallbacks — tried in order when primary returns 404/5xx
 const PLAYER_FALLBACK_DOMAINS = [
   'spedostream2.shop',
+  'bcdnxw.hakunaymatata.com',
   'netmirror.global',
   'netmirror.hair',
   'imb.hair',

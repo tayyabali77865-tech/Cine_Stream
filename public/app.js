@@ -92,6 +92,15 @@ function prefetchUrl(url) {
   }
 }
 
+// Debounce utility — prevents rapid repeated calls during typing
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 // Fast image loader: directly set img.src to proxy URL
 // Above-fold images: eager loading (no lazy)
 // Below-fold images: native browser loading=lazy
@@ -100,10 +109,6 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
     imgElement.src = NO_POSTER;
     return;
   }
-
-  const proxiedUrl = originalUrl.startsWith('http')
-    ? `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
-    : originalUrl;
 
   // Native browser lazy loading: fast & zero JS overhead
   if (isAboveFold) {
@@ -116,18 +121,11 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
   // Store target URL on the element to detect if it has been reassigned/recycled
   imgElement.dataset.currentUrl = originalUrl;
 
-  let triedDirect = false;
   imgElement.onerror = () => {
     // Only apply the error handling if this element is still supposed to load this originalUrl
     if (imgElement.dataset.currentUrl !== originalUrl) return;
-
-    if (triedDirect) {
-      imgElement.onerror = null;
-      imgElement.src = NO_POSTER;
-      return;
-    }
-    triedDirect = true;
-    imgElement.src = originalUrl; // fallback to direct CDN
+    imgElement.onerror = null;
+    imgElement.src = NO_POSTER;
   };
 
   imgElement.onload = () => {
@@ -138,7 +136,7 @@ function loadFastImage(imgElement, originalUrl, isAboveFold) {
   };
 
   // Set src directly — browser handles caching, parallel loading, lazy
-  imgElement.src = proxiedUrl;
+  imgElement.src = originalUrl;
 }
 
 // Card Recycler Pool
@@ -297,6 +295,12 @@ function setupEventListeners() {
     });
   }
 
+  // Debounced search: 300ms delay prevents API calls on every keystroke
+  const debouncedSearch = debounce(handleSearch, 300);
+  searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') debouncedSearch();
+  });
+
   window.addEventListener('hashchange', checkHashRoute);
 }
 
@@ -366,34 +370,37 @@ function setActiveCategoryLi(activeLi) {
 }
 
 // Render next batch of items (up to ITEMS_PER_PAGE) using DocumentFragment (Zero Layout Shift)
+// Wrapped in rAF so DOM insertions happen after browser paint — prevents scroll jank
 const ABOVE_FOLD_COUNT = 8; // First 8 posters: eager loading, high priority
 function renderNextBatch() {
   const nextBatch = loadedMovies.slice(displayedCount, displayedCount + ITEMS_PER_PAGE);
-  const fragment = document.createDocumentFragment();
-
-  nextBatch.forEach((movie, i) => {
-    const isAboveFold = (displayedCount + i) < ABOVE_FOLD_COUNT;
-    const card = cardPool.acquire(movie, isAboveFold);
-    fragment.appendChild(card);
-  });
-
-  moviesGrid.appendChild(fragment);
+  const currentDisplayedCount = displayedCount;
   displayedCount += nextBatch.length;
 
-  // Show infinite scroll indicator container
-  paginationContainer.style.display = 'flex';
+  requestAnimationFrame(() => {
+    const fragment = document.createDocumentFragment();
+    nextBatch.forEach((movie, i) => {
+      const isAboveFold = (currentDisplayedCount + i) < ABOVE_FOLD_COUNT;
+      const card = cardPool.acquire(movie, isAboveFold);
+      fragment.appendChild(card);
+    });
+    moviesGrid.appendChild(fragment);
 
-  // Network-aware Prefetch next page listing in the background
-  let nextPageUrl = '';
-  if (currentQuery) {
-    nextPageUrl = `/api/search?query=${encodeURIComponent(currentQuery)}&page=${currentPage + 1}`;
-  } else {
-    nextPageUrl = `/api/data?page=${currentPage + 1}`;
-    if (currentCategory) {
-      nextPageUrl += `&category=${encodeURIComponent(currentCategory)}`;
+    // Show infinite scroll indicator container
+    paginationContainer.style.display = 'flex';
+
+    // Network-aware Prefetch next page listing in the background
+    let nextPageUrl = '';
+    if (currentQuery) {
+      nextPageUrl = `/api/search?query=${encodeURIComponent(currentQuery)}&page=${currentPage + 1}`;
+    } else {
+      nextPageUrl = `/api/data?page=${currentPage + 1}`;
+      if (currentCategory) {
+        nextPageUrl += `&category=${encodeURIComponent(currentCategory)}`;
+      }
     }
-  }
-  prefetchUrl(nextPageUrl);
+    prefetchUrl(nextPageUrl);
+  });
 }
 
 // Fetch more from server
@@ -673,9 +680,6 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
       `;
 
       let proxiedDetailPoster = movie.poster || NO_POSTER;
-      if (proxiedDetailPoster.startsWith('http')) {
-        proxiedDetailPoster = `/api/image-proxy?url=${encodeURIComponent(proxiedDetailPoster)}`;
-      }
 
       modalBody.innerHTML = `
         <div class="details-header">
@@ -726,10 +730,17 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         </div>
       `;
 
-      // Fetch related dubbed versions asynchronously
+      // Fetch related dubbed versions asynchronously — 5s timeout to prevent infinite spinner
       try {
         const cleanTitle = movie.title.split('[')[0].split('Season')[0].split('S1')[0].split('complete')[0].trim();
-        const relatedData = await apiCache.fetch(`/api/movie/${slug}/related?title=${encodeURIComponent(cleanTitle)}`);
+        const relatedAbort = new AbortController();
+        const relatedTimeout = setTimeout(() => relatedAbort.abort(), 5000);
+        const relatedData = await apiCache.fetch(
+          `/api/movie/${slug}/related?title=${encodeURIComponent(cleanTitle)}`,
+          {},
+          relatedAbort
+        );
+        clearTimeout(relatedTimeout);
 
         if (relatedData.success && relatedData.data && relatedData.data.length > 0) {
           if (allowAutoSwitch) {
@@ -852,6 +863,9 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         }
 
         const container = document.getElementById('details-controls-container');
+        // Guard: modal may have been closed before async fetch completed
+        if (!container) return;
+
         if (dubsSelectHTML || seasonSelectorHTML || episodeGridHTML) {
           let dropdownsHTML = '';
           if (dubsSelectHTML || seasonSelectorHTML) {
@@ -936,6 +950,9 @@ async function openMovieDetail(slug, updateHash = true, allowAutoSwitch = true, 
         }
       } catch (err) {
         console.error('Error rendering selectors:', err);
+        // Always hide the loading spinner on any error — never leave it stuck
+        const containerOnError = document.getElementById('details-controls-container');
+        if (containerOnError) containerOnError.style.display = 'none';
       }
 
       // Load Recommendations

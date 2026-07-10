@@ -13,9 +13,12 @@ const CATEGORIES = [
 ];
 
 export default async function handler(req, res) {
+  // Categories are completely static — cache aggressively at browser and CDN level
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
   return res.status(200).json({
     success: true,
     count: CATEGORIES.length,
     data: CATEGORIES
   });
 };
+
