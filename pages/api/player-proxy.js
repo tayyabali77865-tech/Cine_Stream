@@ -27,6 +27,7 @@ function buildInlinePlayer(proxiedVideoUrl) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Player</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -80,11 +81,18 @@ function buildInlinePlayer(proxiedVideoUrl) {
       fullscreenWeb: false,
       miniProgressBar: true,
       mutex: true,
-      theme: '#6366f1',
+      theme: '#e50914',
       lang: 'en',
     });
 
-    var _origPlay = HTMLMediaElement.prototype.play;
+    // Apply no-referrer to the underlying video element after player init
+    art.on('ready', function() {
+      var vid = art.video;
+      if (vid) {
+        vid.setAttribute('referrerpolicy', 'no-referrer');
+        vid.removeAttribute('crossorigin');
+      }
+    });
     HTMLMediaElement.prototype.play = function() {
       return _origPlay.apply(this, arguments).catch(function(e) {
         if (e && e.name === 'AbortError') { return; }
@@ -257,12 +265,13 @@ export default async function handler(req, res) {
             } catch (e) {}
 
             if (!urlExpired) {
-              // hakunaymatata.com blocks Cloudflare IPs — route through Vercel proxy instead
+              // hakunaymatata.com blocks direct requests → use Vercel proxy
+              // All other CDNs → direct URL (zero server bandwidth)
               const isHakuna = decodedVideoUrl.includes('hakunaymatata.com');
               const proxiedVideoUrl = isHakuna
                 ? `${localOrigin}/api/video-proxy?streamUrl=${encodeURIComponent(decodedVideoUrl)}`
-                : `${workerUrl}?streamUrl=${encodeURIComponent(decodedVideoUrl)}`;
-              console.log("[STREAM ROUTE]", isHakuna ? '[Vercel]' : '[CF Worker]', proxiedVideoUrl);
+                : decodedVideoUrl; // Direct CDN — browser fetches with no-referrer
+              console.log('[STREAM ROUTE watchflmy]', isHakuna ? '[Vercel]' : '[Direct CDN]', proxiedVideoUrl);
               res.setHeader('Content-Type', 'text/html');
               return res.status(200).send(buildInlinePlayer(proxiedVideoUrl));
             }
