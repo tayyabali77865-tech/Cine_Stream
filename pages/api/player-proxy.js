@@ -259,20 +259,16 @@ export default async function handler(req, res) {
                 const nowTimestamp = Math.floor(Date.now() / 1000);
                 const ageSeconds = nowTimestamp - urlTimestamp;
                 if (ageSeconds > 3600) { // Expired if older than 1 hour
-                  console.warn(`[player-proxy] watchflmy URL expired (age: ${Math.round(ageSeconds/60)}min), falling back to full player fetch for fresh URL`);
+                  console.warn(`[player-proxy] watchflmy URL expired (age: ${Math.round(ageSeconds / 60)}min), falling back to full player fetch for fresh URL`);
                   urlExpired = true;
                 }
               }
-            } catch (e) {}
+            } catch (e) { }
 
             if (!urlExpired) {
-              // hakunaymatata.com blocks direct requests → use Vercel proxy
-              // All other CDNs → direct URL (zero server bandwidth)
-              const isHakuna = decodedVideoUrl.includes('hakunaymatata.com');
-              const proxiedVideoUrl = isHakuna
-                ? `${localOrigin}/api/video-proxy?streamUrl=${encodeURIComponent(decodedVideoUrl)}`
-                : decodedVideoUrl; // Direct CDN — browser fetches with no-referrer
-              console.log('[STREAM ROUTE watchflmy]', isHakuna ? '[Vercel]' : '[Direct CDN]', proxiedVideoUrl);
+              // Direct CDN — browser fetches with no-referrer
+              const proxiedVideoUrl = decodedVideoUrl;
+              console.log('[STREAM ROUTE watchflmy] [Direct CDN]', proxiedVideoUrl);
               res.setHeader('Content-Type', 'text/html');
               return res.status(200).send(buildInlinePlayer(proxiedVideoUrl));
             }
@@ -426,12 +422,7 @@ export default async function handler(req, res) {
           }
         }
       } catch(e) {}
-      // hakunaymatata.com must go through Vercel proxy (it blocks direct requests)
       // Everything else: return the direct CDN URL — browser plays it with no-referrer policy
-      if (play_url.includes('hakunaymatata.com')) {
-        console.log('[STREAM ROUTE] hakunaymatata → Vercel proxy');
-        return "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url);
-      }
       console.log('[STREAM ROUTE] Direct CDN (zero bandwidth) →', play_url);
       return play_url; `);
 
