@@ -373,9 +373,12 @@ export default async function handler(req, res) {
     html = html.replace(/https?:\/\/llvpn\.com[^\s'"`]*/gi, `${localOrigin}/api/dummy.js`);
     html = html.replace(/https?:\/\/adblock\.com[^\s'"`]*/gi, '/');
 
-    // Smart routing: hakunaymatata.com blocks Cloudflare IPs → use Vercel proxy
-    // All other CDNs → use Cloudflare Worker (zero server bandwidth)
+    // Smart routing:
+    // - hakunaymatata.com blocks Cloudflare IPs → always use Vercel proxy
+    // - If Cloudflare Worker is configured → use it for all other CDNs (saves bandwidth)
+    // - If no Worker configured (local/dev) → fallback to Vercel proxy for all streams
     const vercelProxyUrl = `${localOrigin}/api/video-proxy`;
+    const cfWorkerUrl = ${workerUrl ? `"${workerUrl}"` : 'null'};
     html = html.replace('function play_url(play_url,ext=0){', `function play_url(play_url,ext=0){ 
       if (window.hasExtensionActive) { return play_url; }
       // Check if the signed URL has an expired t= timestamp
@@ -394,10 +397,11 @@ export default async function handler(req, res) {
         }
       } catch(e) {}
       const isHakuna = play_url.includes('hakunaymatata.com');
-      const finalVideoUrl = isHakuna
+      const workerAvailable = ${workerUrl ? 'true' : 'false'};
+      const finalVideoUrl = (isHakuna || !workerAvailable)
         ? "${vercelProxyUrl}?streamUrl=" + encodeURIComponent(play_url)
-        : "${workerUrl}?streamUrl=" + encodeURIComponent(play_url);
-      console.log("[STREAM ROUTE]", isHakuna ? '[Vercel]' : '[CF Worker]', finalVideoUrl);
+        : cfWorkerUrl + "?streamUrl=" + encodeURIComponent(play_url);
+      console.log("[STREAM ROUTE]", (isHakuna || !workerAvailable) ? '[Vercel Fallback]' : '[CF Worker]', finalVideoUrl);
       return finalVideoUrl; `);
 
     const extraStyles = `
